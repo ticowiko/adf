@@ -1,0 +1,219 @@
+name: validation
+modules:
+- name: std
+  import_path: flow_operations.operations
+- name: flow_config
+  import_path: ADF.components.flow_config
+flows:
+- name: main-flow
+  steps:
+  - layer: light
+    name: landing-step
+  - layer: light
+    name: meta-step
+    start: landing
+    meta:
+      columns:
+        - name: col_0
+          cast: str
+        - name: col_1
+          cast: int
+        - name: col_2
+          cast: float
+        - name: col_3
+          cast: str
+      on_missing_default: fill
+      on_extra: cut
+  - layer: light
+    name: concrete-step
+    func:
+      load_as: module
+      params:
+        module: std
+        name: concrete_op
+    func_kwargs:
+      fill_val: FILL
+  - layer: heavy
+    start: landing
+    name: apply-step
+    func:
+      load_as: module
+      params:
+        module: std
+        name: apply_op
+    func_kwargs:
+      input_col: col_0
+      output_col: col_0
+  - layer: heavy
+    name: group-step
+    func:
+      load_as: module
+      params:
+        module: std
+        name: group_op
+    sequencer:
+      class_name: StrictIterativeSequencer
+      module: flow_config
+      params:
+        batch_init: '0'
+    meta:
+      columns:
+        - name: col_0
+          cast: str
+        - name: col_1_sum
+          cast: int
+        - name: min_col_1
+          cast: int
+        - name: max_col_1
+          cast: int
+        - name: count
+          cast: int
+        - name: n_col_1
+          cast: int
+      on_missing_default: fill
+      on_extra: cut
+  - layer: expose
+    name: kwarg-step
+    func:
+      load_as: module
+      params:
+        module: std
+        name: kwarg_op
+    func_kwargs:
+      fill_cols:
+        - fill_col_0
+      fill_val: ADF fill
+    meta:
+      columns:
+        - name: col_0
+          cast: str
+        - name: col_1_sum
+          cast: int
+        - name: min_col_1
+          cast: int
+        - name: max_col_1
+          cast: int
+        - name: count
+          cast: int
+        - name: n_col_1
+          cast: int
+        - name: fill_col_0
+          cast: str
+      on_missing_default: fill
+      on_extra: cut
+  - layer: expose
+    name: cut-step
+    func:
+      load_as: eval
+      params:
+        expr: 'lambda x: x[["col_0", "fill_col_0"]]'
+    meta:
+      columns:
+        - name: col_0
+          cast: str
+        - name: fill_col_0
+          cast: str
+      on_missing_default: fill
+      on_extra: cut
+- name: secondary-flow
+  steps:
+  - layer: heavy
+    name: meta-step
+    start: landing
+  - layer: heavy
+    name: meta-step
+    sequencer:
+      class_name: StrictIterativeSequencer
+      module: flow_config
+      params:
+        batch_init: '0'
+  - layer: heavy
+    name: apply-step
+    func:
+      load_as: module
+      params:
+        module: std
+        name: apply_op
+    func_kwargs:
+      input_col: col_0
+      output_col: col_0
+    meta:
+      columns:
+        - name: col_0
+          cast: str
+        - name: col_1
+          cast: int
+        - name: col_2
+          cast: float
+        - name: col_3
+          cast: str
+      on_missing_default: fill
+      on_extra: cut
+- name: combination-flow
+  steps:
+  - layer: expose
+    name: combination-step
+    start: combination
+    input_steps:
+    - flow_name: main-flow
+      step_name: kwarg-step
+    - flow_name: secondary-flow
+      step_name: apply-step
+    func_kwargs:
+      join_col: col_0
+    meta:
+      columns:
+        - name: col_0
+          cast: str
+        - name: col_1
+          cast: int
+        - name: col_2
+          cast: float
+        - name: col_3
+          cast: str
+        - name: col_1_sum
+          cast: int
+        - name: min_col_1
+          cast: int
+        - name: max_col_1
+          cast: int
+        - name: count
+          cast: int
+        - name: n_col_1
+          cast: int
+      on_missing_default: fill
+      on_extra: cut
+  - layer: expose
+    name: custom-load-step
+    func:
+      load_as: module
+      params:
+        module: std
+        name: custom_load_op
+    func_kwargs:
+      pk: col_3
+    data_loader:
+      class_name: FullAndIncomingDataLoader
+      module: flow_config
+    meta:
+      columns:
+        - name: col_0
+          cast: str
+        - name: col_1
+          cast: int
+        - name: col_2
+          cast: float
+        - name: col_3
+          cast: str
+        - name: col_1_sum
+          cast: int
+        - name: min_col_1
+          cast: int
+        - name: max_col_1
+          cast: int
+        - name: count
+          cast: int
+        - name: n_col_1
+          cast: int
+      on_missing_default: fill
+      on_extra: cut

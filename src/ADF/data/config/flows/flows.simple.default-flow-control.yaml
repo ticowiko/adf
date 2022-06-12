@@ -1,0 +1,109 @@
+name: simple-default
+modules:
+  - name: std
+    import_path: flow_operations.operations
+flows:
+  - name: flow-0
+    steps:
+      - layer: light
+        name: landing-step
+        start: landing
+      - layer: light
+        name: meta-step
+        meta:
+          columns:
+            - name: col_0
+              cast: str
+            - name: col_1
+              cast: int
+            - name: col_2
+              cast: float
+            - name: col_3
+              cast: str
+              on_missing: fail
+          on_missing_default: fill
+          on_extra: cut
+  - name: flow-1
+    steps:
+      - layer: light
+        name: landing-step
+        start: landing
+      - layer: light
+        name: meta-step
+        meta:
+          columns:
+            - name: col_0
+              cast: str
+            - name: col_1
+              cast: int
+            - name: col_2
+              cast: float
+            - name: col_3
+              cast: str
+              on_missing: fail
+          on_missing_default: fill
+          on_extra: cut
+  - name: combination-flow
+    steps:
+      - layer: heavy
+        name: combination-step
+        start: combination
+        func:
+          load_as: module
+          params:
+            module: std
+            name: generic_join_op
+        func_kwargs:
+          join_cols:
+            - col_3
+        input_steps:
+          - flow_name: flow-0
+            step_name: meta-step
+          - flow_name: flow-1
+            step_name: meta-step
+        meta:
+          columns:
+            - name: l_col_0
+              cast: str
+            - name: r_col_0
+              cast: str
+            - name: l_col_1
+              cast: int
+            - name: r_col_1
+              cast: int
+            - name: l_col_2
+              cast: float
+            - name: r_col_2
+              cast: float
+            - name: col_3
+              cast: str
+          on_missing_default: fill
+          on_extra: cut
+      - layer: expose
+        name: expose-step
+        func:
+          load_as: module
+          params:
+            module: std
+            name: unicity_check_op
+        func_kwargs:
+          pk:
+            - col_3
+        meta:
+          columns:
+            - name: l_col_0
+              cast: str
+            - name: r_col_0
+              cast: str
+            - name: l_col_1
+              cast: int
+            - name: r_col_1
+              cast: int
+            - name: l_col_2
+              cast: float
+            - name: r_col_2
+              cast: float
+            - name: col_3
+              cast: str
+          on_missing_default: fill
+          on_extra: cut

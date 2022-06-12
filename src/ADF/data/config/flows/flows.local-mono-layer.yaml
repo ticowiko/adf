@@ -1,0 +1,191 @@
+name: mono
+modules:
+  - name: std
+    import_path: flow_operations.operations
+  - name: sequencers
+    import_path: ADF.components.flow_config
+flows:
+  - name: test-flow
+    steps:
+      - layer: light
+        name: landing-step
+        start: landing
+      - layer: light
+        name: meta-step
+        func:
+          load_as: eval
+          params:
+            expr: 'lambda x: x.sort("col_3", asc=False)'
+        meta:
+          columns:
+            - name: col_0
+              cast: str
+            - name: col_1
+              cast: int
+            - name: col_2
+              cast: float
+            - name: col_3
+              cast: str
+            - name: col_missing
+          on_missing_default: fill
+      - layer: light
+        name: concrete-step
+        func:
+          load_as: module
+          params:
+            module: std
+            name: concrete_op
+        func_kwargs:
+          fill_val: FILL
+      - layer: light
+        name: apply-step
+        func:
+          load_as: module
+          params:
+            module: std
+            name: apply_op
+        func_kwargs:
+          input_col: col_0
+          output_col: col_0
+      - layer: light
+        name: compute-step
+        func:
+          load_as: module
+          params:
+            module: std
+            name: col_compute
+        meta:
+          columns:
+            - name: col_0
+              cast: str
+            - name: col_1
+              cast: int
+            - name: col_2
+              cast: float
+            - name: col_3
+              cast: str
+            - name: col_4
+              cast: str
+          on_extra: cut
+        sequencer:
+          class_name: StrictIterativeSequencer
+          module: sequencers
+          params:
+            batch_init: '0'
+            iterator:
+              load_as: eval
+              params:
+                expr: 'lambda x: str(int(x) + 1)'
+      - layer: light
+        name: group-step
+        func:
+          load_as: module
+          params:
+            module: std
+            name: group_op
+      - layer: light
+        name: join-step
+        func:
+          load_as: module
+          params:
+            module: std
+            name: join_op
+      - layer: light
+        name: union-step
+        func:
+          load_as: module
+          params:
+            module: std
+            name: union_op
+      - layer: light
+        name: distinct-step
+        func:
+          load_as: module
+          params:
+            module: std
+            name: distinct_op
+      - layer: light
+        name: kwarg-step
+        func:
+          load_as: module
+          params:
+            module: std
+            name: kwarg_op
+        func_kwargs:
+          null_cols:
+            - null_col_0
+            - null_col_1
+            - null_col_2
+      - layer: heavy
+        name: transition-step
+        transition_write_out: false
+  - name: extra-flow
+    steps:
+      - layer: light
+        name: landing-step
+        start: landing
+      - layer: light
+        name: meta-step
+        func:
+          load_as: eval
+          params:
+            expr: 'lambda x: x'
+        meta:
+          columns:
+            - name: col_0
+              cast: str
+            - name: col_1
+              cast: int
+            - name: col_2
+              cast: float
+            - name: col_3
+              cast: str
+            - name: col_missing
+          on_missing_default: fill
+  - name: same-layer-combination-flow
+    steps:
+      - layer: light
+        name: combination-step
+        start: combination
+        input_steps:
+          - flow_name: test-flow
+            step_name: distinct-step
+          - flow_name: extra-flow
+            step_name: meta-step
+        func:
+          load_as: module
+          params:
+            module: std
+            name: args_combination_op
+        func_kwargs:
+          time_col: timestring
+  - name: different-layer-combination-flow
+    steps:
+      - layer: heavy
+        name: combination-step
+        start: combination
+        input_steps:
+          - flow_name: test-flow
+            step_name: distinct-step
+          - flow_name: extra-flow
+            step_name: meta-step
+        func:
+          load_as: module
+          params:
+            module: std
+            name: args_combination_op
+  - name: different-layer-concrete-combination-flow
+    steps:
+      - layer: heavy
+        name: combination-step
+        start: combination
+        input_steps:
+          - flow_name: test-flow
+            step_name: distinct-step
+          - flow_name: extra-flow
+            step_name: meta-step
+        func:
+          load_as: module
+          params:
+            module: std
+            name: concrete_args_combination_op

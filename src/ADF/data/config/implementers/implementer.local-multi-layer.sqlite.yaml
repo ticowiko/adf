@@ -1,0 +1,12 @@
+extra_packages: [.]
+implementer_class: ADF.components.implementers.MultiLayerLocalImplementer
+root_path: local_implementers/multi_layer_sqlite
+layers:
+  pandas:
+    - default
+    - light
+  spark:
+    - heavy
+  sqlite:
+    - expose
+    - second

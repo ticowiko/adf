@@ -1,0 +1,11 @@
+col_0,col_1,col_2,col_3,col_4
+val_0,5,0,ID0,"hello"
+val_0,5,0,ID1,"world"
+val_0,4,1,ID2,"hello world"
+val_0,4,1,ID3,"text, "
+val_0,3,2,ID4,"text, "
+val_1,3,2,ID5,"text, "
+val_1,2,3,ID6,"text, text, "
+val_1,2,3,ID7,"text, text, "
+val_1,1,4,ID8,"text, text, "
+val_1,1,4,ID9,"text, text, text, "

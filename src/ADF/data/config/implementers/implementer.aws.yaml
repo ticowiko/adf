@@ -1,0 +1,27 @@
+extra_packages: [.]
+implementer_class: ADF.components.implementers.AWSImplementer
+mode: managed
+name: adftest
+log_folder: local_implementers/logs/aws
+bucket: YOUR-BUCKET-NAME-HERE
+s3_prefix: ADF_S3_PREFIX/
+state_handler:
+  engine: postgres # only postgres is currently supported
+  db_name: ADF_STATE_HANDLER
+  db_instance_class: db.t3.micro
+  allocated_storage: 20
+lambda_layers:
+  light:
+    sep: ","
+    timeout: 60
+    memory: 1024
+emr_layers:
+  heavy:
+    master_instance_type: m5.xlarge
+    slave_instance_type: m5.xlarge
+    instance_count: 1
+redshift_layers:
+  expose:
+    db_name: expose
+    number_of_nodes: 1
+    node_type: dc2.large

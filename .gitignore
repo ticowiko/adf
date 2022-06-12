@@ -1,0 +1,14 @@
+# Pycharm files
+.idea/
+
+# Dev files
+local_implementers/
+/*.zip
+/*-key-pair
+/config/implementers/implementer.aws.pb.yaml
+
+# Python files
+**/__pycache__/
+**.egg-info/
+build/
+dist/

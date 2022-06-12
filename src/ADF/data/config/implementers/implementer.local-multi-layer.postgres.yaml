@@ -1,0 +1,20 @@
+extra_packages: [.]
+implementer_class: ADF.components.implementers.MultiLayerLocalImplementer
+root_path: local_implementers/multi_layer_postgres
+postgres_config:
+  host: localhost
+  port: 5432
+  db: adf_db
+  admin_user: postgres
+  admin_pw: postgres
+  user: adf_user
+  pw: pw
+layers:
+  pandas:
+    - default
+    - light
+  spark:
+    - heavy
+  postgres:
+    - expose
+    - second

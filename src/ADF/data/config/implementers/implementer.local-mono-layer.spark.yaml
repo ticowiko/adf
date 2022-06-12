@@ -1,0 +1,13 @@
+extra_packages: [.]
+implementer_class: ADF.components.implementers.MonoLayerLocalImplementer
+root_path: local_implementers/mono_layer_spark
+state_sqlite_path: state.db
+layers:
+  - default
+  - light
+  - heavy
+  - storage
+  - expose
+layer:
+  module: ADF.components.layers
+  class: LocalSparkFileDataLayer
