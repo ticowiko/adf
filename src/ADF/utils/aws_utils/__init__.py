@@ -6,6 +6,7 @@ from .aws_clients import (
     iam_client,
     rds_client,
     emr_client,
+    emr_serverless_client,
     ec2_client,
     sqs_client,
     lambda_client,
@@ -28,6 +29,7 @@ from .aws_resource_configs import (
     AWSVPCConfig,
     AWSInternetGatewayConfig,
     AWSNATGatewayConfig,
+    AWSVPCEndpointConfig,
     AWSElasticIPConfig,
     AWSRouteTableConfig,
     AWSSecurityGroupConfig,
@@ -39,6 +41,7 @@ from .aws_resource_configs import (
     AWSEventSourceMappingConfig,
     AWSLambdaConfig,
     AWSEMRConfig,
+    AWSEMRServerlessConfig,
     AWSRedshiftConfig,
 )
 from .aws_resource_connectors import (
@@ -48,6 +51,7 @@ from .aws_resource_connectors import (
     AWSVPCConnector,
     AWSInternetGatewayConnector,
     AWSNATGatewayConnector,
+    AWSVPCEndpointConnector,
     AWSElasticIPConnector,
     AWSRouteTableConnector,
     AWSSecurityGroupConnector,
@@ -59,6 +63,7 @@ from .aws_resource_connectors import (
     AWSEventSourceMappingConnector,
     AWSLambdaConnector,
     AWSEMRConnector,
+    AWSEMRServerlessConnector,
     AWSRedshiftConnector,
 )
-from .misc import s3_delete_prefix, s3_list_objects
+from .misc import s3_delete_prefix, s3_list_objects, s3_url_to_bucket_and_key

@@ -1,4 +1,5 @@
-import os
+import logging
+
 import yaml
 
 from typing import List, TextIO
@@ -12,7 +13,12 @@ from ADF.components.flow_config import (
     ADFModule,
 )
 from ADF.config import ADFGlobalConfig
-from ADF.utils import ToDictMixin, extract_parameter
+from ADF.utils import (
+    ToDictMixin,
+    extract_parameter,
+    s3_client,
+    s3_url_to_bucket_and_key,
+)
 
 
 class ADFCollection(ToDictMixin):
@@ -28,7 +34,19 @@ class ADFCollection(ToDictMixin):
 
     @classmethod
     def from_config_path(cls, config_path: str) -> "ADFCollection":
-        return cls.from_config_file(open(config_path, "r"))
+        if config_path.startswith("s3://"):
+            logging.info(f"Loading {cls.__name__} from path {config_path}")
+            bucket, key = s3_url_to_bucket_and_key(config_path)
+            return cls.from_yaml_string(
+                s3_client.get_object(
+                    Bucket=bucket,
+                    Key=key,
+                )["Body"]
+                .read()
+                .decode("utf-8")
+            )
+        else:
+            return cls.from_config_file(open(config_path, "r"))
 
     @classmethod
     def from_config_file(cls, config_file: TextIO) -> "ADFCollection":

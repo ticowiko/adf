@@ -1,6 +1,6 @@
 import logging
 
-from typing import List
+from typing import List, Tuple
 
 from ADF.utils.aws_utils.aws_clients import s3_resource, s3_client
 
@@ -27,3 +27,9 @@ def s3_list_objects(bucket: str, prefix: str) -> List[str]:
         )
         for result in result_page.get("Contents", [])
     ]
+
+
+def s3_url_to_bucket_and_key(path: str) -> Tuple[str, str]:
+    if not path.startswith("s3://"):
+        raise ValueError(f"Cannot parse s3 path {path} as it does not start with 's3://'")
+    return path[5:].split("/")[0], "/".join(path[5:].split("/")[1:])

@@ -16,7 +16,7 @@ from ADF.components.layer_transitions import ADLTransition
 from ADF.components.layers import (
     AbstractDataLayer,
     AWSLambdaLayer,
-    AWSEMRLayer,
+    AWSBaseEMRLayer,
     AWSRedshiftLayer,
 )
 from ADF.exceptions import ADLUnsupportedTransition
@@ -34,7 +34,7 @@ class LambdaToEMRTransition(ADLTransition):
 
     @staticmethod
     def get_handled_layers_out() -> List[Type[AbstractDataLayer]]:
-        return [AWSEMRLayer]
+        return [AWSBaseEMRLayer]
 
     def write_batch_data(
         self, ads: PandasDataStructure, step: ADFStep, batch_id: str
@@ -43,7 +43,7 @@ class LambdaToEMRTransition(ADLTransition):
 
     def read_batch_data(self, step: ADFStep, batch_id: str) -> SparkDataStructure:
         self.layer_in: AWSLambdaLayer
-        self.layer_out: AWSEMRLayer
+        self.layer_out: AWSBaseEMRLayer
         ads = SparkDataStructure(
             df=self.layer_out.spark.read.format("csv")
             .options(header="true", inferSchema="true")
@@ -55,7 +55,7 @@ class LambdaToEMRTransition(ADLTransition):
 
     def read_full_data(self, step: ADFStep) -> SparkDataStructure:
         self.layer_in: AWSLambdaLayer
-        self.layer_out: AWSEMRLayer
+        self.layer_out: AWSBaseEMRLayer
         ads = SparkDataStructure(
             df=self.layer_out.spark.createDataFrame(
                 self.layer_in.read_full_data(step).df
@@ -88,11 +88,11 @@ class EMRToEMRTransition(ADLTransition):
 
     @staticmethod
     def get_handled_layers_in() -> List[Type[AbstractDataLayer]]:
-        return [AWSEMRLayer]
+        return [AWSBaseEMRLayer]
 
     @staticmethod
     def get_handled_layers_out() -> List[Type[AbstractDataLayer]]:
-        return [AWSEMRLayer]
+        return [AWSBaseEMRLayer]
 
     def setup_write_out(self, step_in: ADFStep, step_out: ADFStep) -> None:
         pass
@@ -101,17 +101,17 @@ class EMRToEMRTransition(ADLTransition):
         pass
 
     def read_batch_data(self, step: ADFStep, batch_id: str) -> SparkDataStructure:
-        self.layer_in: AWSEMRLayer
+        self.layer_in: AWSBaseEMRLayer
         return self.layer_in.read_batch_data(step, batch_id)
 
     def read_full_data(self, step: ADFStep) -> SparkDataStructure:
-        self.layer_in: AWSEMRLayer
+        self.layer_in: AWSBaseEMRLayer
         return self.layer_in.read_full_data(step)
 
     def write_batch_data(
         self, ads: SparkDataStructure, step: ADFStep, batch_id: str
     ) -> None:
-        self.layer_out: AWSEMRLayer
+        self.layer_out: AWSBaseEMRLayer
         self.layer_out.write_batch_data(ads, step, batch_id)
 
     def delete_step_write_out(self, step: ADFStep):
@@ -145,7 +145,7 @@ class EMRToRedshiftTransition(ADLTransition):
 
     @staticmethod
     def get_handled_layers_in() -> List[Type[AbstractDataLayer]]:
-        return [AWSEMRLayer]
+        return [AWSBaseEMRLayer]
 
     @staticmethod
     def get_handled_layers_out() -> List[Type[AbstractDataLayer]]:
@@ -164,7 +164,7 @@ class EMRToRedshiftTransition(ADLTransition):
         self.layer_out.conn.execute(statement)
 
     def create_spectrum_table(self, step: ADFStep) -> None:
-        self.layer_in: AWSEMRLayer
+        self.layer_in: AWSBaseEMRLayer
         self.layer_out: AWSRedshiftLayer
         self.layer_out.validate_step(step)
         table_name = self.layer_out.get_table_name(step)
@@ -246,7 +246,7 @@ class EMRToRedshiftTransition(ADLTransition):
         return val
 
     def add_step_partitions(self, step: ADFStep):
-        self.layer_in: AWSEMRLayer
+        self.layer_in: AWSBaseEMRLayer
         self.layer_out: AWSRedshiftLayer
         table_name = self.layer_out.get_table_name(step)
         keys = s3_list_objects(
@@ -280,7 +280,7 @@ class EMRToRedshiftTransition(ADLTransition):
     def write_batch_data(
         self, ads: SparkDataStructure, step: ADFStep, batch_id: str
     ) -> None:
-        self.layer_in: AWSEMRLayer
+        self.layer_in: AWSBaseEMRLayer
         self.layer_out: AWSRedshiftLayer
         self.layer_in.write_batch_data(ads, step, batch_id)
         self.add_step_partitions(step)

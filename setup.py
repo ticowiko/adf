@@ -1,8 +1,22 @@
 #!/usr/bin/env python3
 
+import os
+import re
 import sys
 import glob
 from setuptools import setup, find_packages
+
+
+mo = re.search(
+    r"^__version__ = ['\"]([^'\"]*)['\"]",
+    open(os.path.join(os.path.dirname(__file__), "src/ADF/_version.py"), "r").read(),
+    re.M,
+)
+if mo:
+    version = mo.group(1)
+    print(f"Parsed version : {version}")
+else:
+    raise RuntimeError("Failed to parse version")
 
 
 requirements = [
@@ -14,12 +28,13 @@ requirements = [
     "sqlalchemy-redshift==0.8.5",
     "PyYAML>=6.0",
     "psycopg2-binary==2.9.1",
-    "boto3==1.18.31",
+    "boto3==1.24.66",
     "croniter==1.3.4",
+    "venv-pack==0.2.0",
 ]
 if "--dev" in sys.argv:
     requirements += [
-        "boto3-stubs==1.18.36",
+        "boto3-stubs==1.24.66",
         "ipython==7.27.0",
     ]
     sys.argv.remove("--dev")
@@ -41,7 +56,7 @@ if "--emr" in sys.argv:
 
 setup(
     name="adf",
-    version="0.0.6",
+    version=version,
     description="Create infrastructure agnostic data processing pipelines",
     author="Patrick El Hage",
     author_email="patrickelhageuniv@gmail.com",

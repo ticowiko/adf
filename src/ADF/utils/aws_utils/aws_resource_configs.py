@@ -1,7 +1,11 @@
 import os
 
 from abc import ABC, abstractmethod
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Any
+
+
+def first_or_none(l: List) -> Optional[Any]:
+    return l[0] if l else None
 
 
 class AWSResourceConfig(ABC):
@@ -109,6 +113,37 @@ class AWSNATGatewayConfig(AWSResourceConfig):
             ),
             nat_gateway_id=response["NatGatewayId"],
             subnet_id=response["SubnetId"],
+        )
+
+
+class AWSVPCEndpointConfig(AWSResourceConfig):
+    def __init__(
+        self,
+        response: Dict,
+        name: str,
+        vpc_endpoint_id: str,
+        service_name: str,
+        route_table_ids: List[str],
+        subnet_ids: List[str],
+    ):
+        super().__init__(response)
+        self.name = name
+        self.vpc_endpoint_id = vpc_endpoint_id
+        self.service_name = service_name
+        self.route_table_ids = route_table_ids
+        self.subnet_ids = subnet_ids
+
+    @classmethod
+    def from_response(cls, response: Dict) -> "AWSVPCEndpointConfig":
+        return cls(
+            response=response,
+            name={tag["Key"]: tag["Value"] for tag in response["Tags"]}.get(
+                "Name", None
+            ),
+            vpc_endpoint_id=response["VpcEndpointId"],
+            service_name=response["ServiceName"],
+            route_table_ids=response["RouteTableIds"],
+            subnet_ids=response["SubnetIds"],
         )
 
 
@@ -446,6 +481,77 @@ class AWSEMRConfig(AWSResourceConfig):
             public_dns=response["MasterPublicDnsName"],
             log_uri=response.get("LogUri"),
             step_concurrency=response["StepConcurrencyLevel"],
+        )
+
+
+class AWSEMRServerlessConfig(AWSResourceConfig):
+    def __init__(
+        self,
+        response: Dict,
+        application_id: str,
+        name: str,
+        arn: str,
+        state: str,
+        application_type: str,
+        release_label: str,
+        initial_driver_worker_count: int,
+        initial_driver_cpu: str,
+        initial_driver_memory: str,
+        initial_driver_disk: str,
+        initial_executor_worker_count: int,
+        initial_executor_cpu: str,
+        initial_executor_memory: str,
+        initial_executor_disk: str,
+        max_cpu: Optional[str],
+        max_memory: Optional[str],
+        idle_timeout_minutes: int,
+        sg_id: Optional[str],
+        subnet_id: Optional[str],
+    ):
+        super().__init__(response)
+        self.application_id = application_id
+        self.name = name
+        self.arn = arn
+        self.state = state
+        self.application_type = application_type
+        self.release_label = release_label
+        self.initial_driver_worker_count = initial_driver_worker_count
+        self.initial_driver_cpu = initial_driver_cpu.replace(" ", "")
+        self.initial_driver_memory = initial_driver_memory.replace(" ", "")
+        self.initial_driver_disk = initial_driver_disk.replace(" ", "")
+        self.initial_executor_worker_count = initial_executor_worker_count
+        self.initial_executor_cpu = initial_executor_cpu.replace(" ", "")
+        self.initial_executor_memory = initial_executor_memory.replace(" ", "")
+        self.initial_executor_disk = initial_executor_disk.replace(" ", "")
+        self.max_cpu = max_cpu.replace(" ", "") if max_cpu is not None else None
+        self.max_memory = max_memory.replace(" ", "") if max_memory is not None else None
+        self.idle_timeout_minutes = idle_timeout_minutes
+        self.sg_id = sg_id
+        self.subnet_id = subnet_id
+
+    @classmethod
+    def from_response(cls, response: Dict) -> "AWSEMRServerlessConfig":
+        return cls(
+            response=response,
+            application_id=response["applicationId"],
+            name=response["name"],
+            arn=response["arn"],
+            state=response["state"],
+            application_type=response["type"],
+            release_label=response["releaseLabel"],
+            initial_driver_worker_count=response["initialCapacity"]["Driver"]["workerCount"],
+            initial_driver_cpu=response["initialCapacity"]["Driver"]["workerConfiguration"]["cpu"],
+            initial_driver_memory=response["initialCapacity"]["Driver"]["workerConfiguration"]["memory"],
+            initial_driver_disk=response["initialCapacity"]["Driver"]["workerConfiguration"]["disk"],
+            initial_executor_worker_count=response["initialCapacity"]["Executor"]["workerCount"],
+            initial_executor_cpu=response["initialCapacity"]["Executor"]["workerConfiguration"]["cpu"],
+            initial_executor_memory=response["initialCapacity"]["Executor"]["workerConfiguration"]["memory"],
+            initial_executor_disk=response["initialCapacity"]["Executor"]["workerConfiguration"]["disk"],
+            max_cpu=response["maximumCapacity"]["cpu"] if "maximumCapacity" in response else None,
+            max_memory=response["maximumCapacity"]["memory"] if "maximumCapacity" in response else None,
+            idle_timeout_minutes=response["autoStopConfiguration"]["idleTimeoutMinutes"],
+            sg_id=first_or_none(response["networkConfiguration"]["securityGroupIds"]) if "networkConfiguration" in response else None,
+            subnet_id=first_or_none(response["networkConfiguration"]["subnetIds"]) if "networkConfiguration" in response else None,
         )
 
 

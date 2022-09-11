@@ -21,6 +21,7 @@ from ADF.utils.aws_utils import (
     iam_client,
     rds_client,
     emr_client,
+    emr_serverless_client,
     ec2_client,
     sqs_client,
     lambda_client,
@@ -38,6 +39,7 @@ from ADF.utils.aws_utils import (
     AWSVPCConfig,
     AWSInternetGatewayConfig,
     AWSNATGatewayConfig,
+    AWSVPCEndpointConfig,
     AWSElasticIPConfig,
     AWSRouteTableConfig,
     AWSSecurityGroupConfig,
@@ -49,6 +51,7 @@ from ADF.utils.aws_utils import (
     AWSEventSourceMappingConfig,
     AWSLambdaConfig,
     AWSEMRConfig,
+    AWSEMRServerlessConfig,
     AWSRedshiftConfig,
 )
 
@@ -131,6 +134,7 @@ class AWSIAMRoleConnector(AWSResourceConnector):
                             "sqs.amazonaws.com",
                             "lambda.amazonaws.com",
                             "elasticmapreduce.amazonaws.com",
+                            "emr-serverless.amazonaws.com",
                             "ec2.amazonaws.com",
                             "redshift.amazonaws.com",
                             "s3.amazonaws.com",
@@ -376,6 +380,66 @@ class AWSNATGatewayConnector(AWSResourceConnector):
         ec2_client.delete_nat_gateway(NatGatewayId=config.nat_gateway_id)
 
 
+class AWSVPCEndpointConnector(AWSResourceConnector):
+    def __init__(
+        self,
+        name: str,
+        vpc_id: str,
+        service_name: str,
+        route_table_ids: List[str],
+    ):
+        self.name = name
+        self.vpc_id = vpc_id
+        self.service_name = service_name
+        self.route_table_ids = route_table_ids
+
+    # User end security configuration modifications should not be reset
+    def requires_update(self, config: AWSVPCEndpointConfig) -> bool:
+        return False
+
+    def __str__(self):
+        return f"{self.__class__.__name__}:{self.name}"
+
+    def fetch_config(self) -> Optional[AWSVPCEndpointConfig]:
+        response = ec2_client.describe_vpc_endpoints(
+            Filters=[{"Name": "tag:Name", "Values": [self.name]}]
+        )
+        if len(response["VpcEndpoints"]) == 0:
+            return None
+        elif len(response["VpcEndpoints"]) == 1:
+            return AWSVPCEndpointConfig.from_response(response["VpcEndpoints"][0])
+        else:
+            raise ValueError(f"Found multiple vpc endpoints with name {self.name}.")
+
+    def create(self) -> AWSVPCEndpointConfig:
+        ec2_client.create_vpc_endpoint(
+            VpcEndpointType="Gateway",
+            VpcId=self.vpc_id,
+            ServiceName=self.service_name,
+            RouteTableIds=self.route_table_ids,
+            TagSpecifications=[
+                {
+                    "ResourceType": "vpc-endpoint",
+                    "Tags": [
+                        {
+                            "Key": "Name",
+                            "Value": self.name,
+                        },
+                    ],
+                },
+            ],
+        )
+        time.sleep(5)
+        return self.force_fetch_config()
+
+    # User end security configuration modifications should not be reset
+    def update(self, config: AWSVPCEndpointConfig) -> AWSVPCEndpointConfig:
+        return config
+
+    def destroy(self, config: AWSVPCEndpointConfig):
+        ec2_client.delete_vpc_endpoints(VpcEndpointIds=[config.vpc_endpoint_id])
+
+
 class AWSElasticIPConnector(AWSResourceConnector):
     def __init__(
         self,
@@ -585,7 +649,7 @@ class AWSSubnetConnector(AWSResourceConnector):
         vpc_id: str,
         cidr_block: str,
         availability_zone: str,
-        route_table_id: str,
+        route_table_id: Optional[str] = None,
     ):
         self.name = name
         self.vpc_id = vpc_id
@@ -634,9 +698,13 @@ class AWSSubnetConnector(AWSResourceConnector):
             ],
         )
         config = self.force_fetch_config()
-        ec2_client.associate_route_table(
-            RouteTableId=self.route_table_id, SubnetId=config.subnet_id
-        )
+        if self.route_table_id:
+            logging.info(
+                f"Associating route table ID {self.route_table_id} to {str(self)}..."
+            )
+            ec2_client.associate_route_table(
+                RouteTableId=self.route_table_id, SubnetId=config.subnet_id
+            )
         return config
 
     # User end security configuration modifications should not be reset
@@ -1275,6 +1343,156 @@ class AWSEMRConnector(AWSResourceConnector):
             run_command(f"rm {self.get_key_pair_name()} -f")
         except RuntimeError:
             logging.info(f"Skipped deletion of {self.get_key_pair_name()}")
+
+
+class AWSEMRServerlessConnector(AWSResourceConnector):
+    def __init__(
+        self,
+        name: str,
+        release_label: str = "emr-6.6.0",
+        initial_driver_worker_count: int = 1,
+        initial_driver_cpu: str = "1vCPU",
+        initial_driver_memory: str = "2GB",
+        initial_executor_worker_count: int = 1,
+        initial_executor_cpu: str = "1vCPU",
+        initial_executor_memory: str = "2GB",
+        max_cpu: Optional[str] = None,
+        max_memory: Optional[str] = None,
+        idle_timeout_minutes: int = 15,
+        sg_id: Optional[str] = None,
+        subnet_id: Optional[str] = None,
+    ):
+        self.name = name
+        self.release_label = release_label
+        self.initial_driver_worker_count = initial_driver_worker_count
+        self.initial_driver_cpu = initial_driver_cpu
+        self.initial_driver_memory = initial_driver_memory
+        self.initial_executor_worker_count = initial_executor_worker_count
+        self.initial_executor_cpu = initial_executor_cpu
+        self.initial_executor_memory = initial_executor_memory
+        self.max_cpu = max_cpu
+        self.max_memory = max_memory
+        self.idle_timeout_minutes = idle_timeout_minutes
+        self.sg_id = sg_id
+        self.subnet_id = subnet_id
+
+    def requires_update(self, config: AWSEMRServerlessConfig) -> bool:
+        if self.release_label != config.release_label:
+            raise ValueError(
+                f"Cannot change release label for {str(self)} with update ({config.release_label} -> {self.release_label})"
+            )
+        if (
+            (self.initial_driver_worker_count != config.initial_driver_worker_count)
+            or (self.initial_driver_cpu != config.initial_driver_cpu)
+            or (self.initial_driver_memory != config.initial_driver_memory)
+            or (
+                self.initial_executor_worker_count
+                != config.initial_executor_worker_count
+            )
+            or (self.initial_executor_cpu != config.initial_executor_cpu)
+            or (self.initial_executor_memory != config.initial_executor_memory)
+            or (self.max_cpu != config.max_cpu)
+            or (self.max_memory != config.max_memory)
+            or (self.idle_timeout_minutes != config.idle_timeout_minutes)
+            # or (self.sg_id != config.sg_id)
+            # or (self.subnet_id != config.subnet_id)
+        ):
+            return True
+        return False
+
+    def wait_on_application_ready(self) -> AWSEMRServerlessConfig:
+        config = self.force_fetch_config()
+        while config.state not in [
+            "CREATED",
+            "STARTING",
+            "STARTED",
+            "STOPPING",
+            "STOPPED",
+        ]:
+            if config.state == "TERMINATED":
+                raise ValueError(
+                    f"Got 'TERMINATED' state while waiting on application ready for {str(self)}."
+                )
+            logging.info(f"Waiting on creation completion for {str(self)}...")
+            logging.info(
+                f"Current state : '{config.state}'. Application ID '{config.application_id}'."
+            )
+            time.sleep(10)
+            config = self.fetch_config()
+        return config
+
+    def __str__(self):
+        return f"{self.__class__.__name__}:{self.name}"
+
+    def fetch_config(self) -> Optional[AWSEMRServerlessConfig]:
+        for application_page in emr_serverless_client.get_paginator(
+            "list_applications"
+        ).paginate():
+            for application in application_page["applications"]:
+                if application["name"] == self.name:
+                    return AWSEMRServerlessConfig.from_response(
+                        emr_serverless_client.get_application(
+                            applicationId=application["id"]
+                        )["application"]
+                    )
+            return None
+
+    def get_config_dict(self) -> Dict:
+        return {
+            "initialCapacity": {
+                "DRIVER": {
+                    "workerCount": self.initial_driver_worker_count,
+                    "workerConfiguration": {
+                        "cpu": self.initial_driver_cpu,
+                        "memory": self.initial_driver_memory,
+                    },
+                },
+                "EXECUTOR": {
+                    "workerCount": self.initial_executor_worker_count,
+                    "workerConfiguration": {
+                        "cpu": self.initial_executor_cpu,
+                        "memory": self.initial_executor_memory,
+                    },
+                },
+            },
+            "autoStopConfiguration": {
+                "enabled": True,
+                "idleTimeoutMinutes": self.idle_timeout_minutes,
+            },
+            "networkConfiguration": {
+                "securityGroupIds": [self.sg_id] if self.sg_id else [],
+                "subnetIds": [self.subnet_id] if self.subnet_id else [],
+            },
+            **(
+                {
+                    "maximumCapacity": {
+                        "cpu": self.max_cpu,
+                        "memory": self.max_memory,
+                    }
+                }
+                if ((self.max_cpu is not None) and (self.max_memory is not None))
+                else {}
+            ),
+        }
+
+    def create(self) -> AWSEMRServerlessConfig:
+        emr_serverless_client.create_application(
+            name=self.name,
+            releaseLabel=self.release_label,
+            type="SPARK",
+            **self.get_config_dict(),
+        )
+        return self.wait_on_application_ready()
+
+    def update(self, config: AWSEMRServerlessConfig) -> AWSEMRServerlessConfig:
+        emr_serverless_client.update_application(
+            applicationId=config.application_id,
+            **self.get_config_dict(),
+        )
+        return self.wait_on_application_ready()
+
+    def destroy(self, config: AWSEMRServerlessConfig):
+        emr_serverless_client.delete_application(applicationId=config.application_id)
 
 
 class AWSRedshiftConnector(AWSResourceConnector):

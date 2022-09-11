@@ -11,6 +11,9 @@ s3_client = boto3.client("s3", region_name=ADFGlobalConfig.AWS_REGION)
 iam_client = boto3.client("iam", region_name=ADFGlobalConfig.AWS_REGION)
 rds_client = boto3.client("rds", region_name=ADFGlobalConfig.AWS_REGION)
 emr_client = boto3.client("emr", region_name=ADFGlobalConfig.AWS_REGION)
+emr_serverless_client = boto3.client(
+    "emr-serverless", region_name=ADFGlobalConfig.AWS_REGION
+)
 ec2_client = boto3.client("ec2", region_name=ADFGlobalConfig.AWS_REGION)
 sqs_client = boto3.client("sqs", region_name=ADFGlobalConfig.AWS_REGION)
 lambda_client = boto3.client("lambda", region_name=ADFGlobalConfig.AWS_REGION)
