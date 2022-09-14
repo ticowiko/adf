@@ -18,6 +18,7 @@ from ADF.components.layers import (
     AWSLambdaLayer,
     AWSBaseEMRLayer,
     AWSRedshiftLayer,
+    AWSAthenaLayer,
 )
 from ADF.exceptions import ADLUnsupportedTransition
 from ADF.utils import MetaCSVToPandas, s3_list_objects
@@ -281,7 +282,6 @@ class EMRToRedshiftTransition(ADLTransition):
         self, ads: SparkDataStructure, step: ADFStep, batch_id: str
     ) -> None:
         self.layer_in: AWSBaseEMRLayer
-        self.layer_out: AWSRedshiftLayer
         self.layer_in.write_batch_data(ads, step, batch_id)
         self.add_step_partitions(step)
 
@@ -325,3 +325,61 @@ class EMRToRedshiftTransition(ADLTransition):
         self.layer_out.delete_batch(step, batch_id)
         for upstream_step in step.get_upstream_steps():
             self.layer_in.delete_batch(upstream_step, batch_id)
+
+
+class EMRToAthenaTransition(ADLTransition):
+    def default_to_write_out(self) -> bool:
+        return True
+
+    @staticmethod
+    def get_handled_layers_in() -> List[Type[AbstractDataLayer]]:
+        return [AWSBaseEMRLayer]
+
+    @staticmethod
+    def get_handled_layers_out() -> List[Type[AbstractDataLayer]]:
+        return [AWSAthenaLayer]
+
+    def setup_write_out(self, step_in: ADFStep, step_out: ADFStep) -> None:
+        self.layer_in: AWSBaseEMRLayer
+        self.layer_out: AWSAthenaLayer
+        self.layer_out.create_external_table(
+            step=step_out,
+            bucket=self.layer_in.bucket,
+            s3_prefix=self.layer_in.get_step_prefix(step_out),
+            step_format=self.layer_in.get_step_format(step_out),
+            partition_cols=self.layer_in.get_step_partition_key(step_out),
+        )
+
+    def setup_read_in(self, step_in: ADFStep, step_out: ADFStep) -> None:
+        raise NotImplementedError(f"Setting up read in unsupported in {str(self)} !")
+
+    def delete_step_write_out(self, step: ADFStep):
+        self.layer_in.delete_step(step)
+
+    def delete_step_read_in(self, step: ADFStep):
+        raise NotImplementedError(f"Deleting step read in unsupported in {str(self)} !")
+
+    def delete_batch_write_out(self, step: ADFStep, batch_id: str):
+        self.layer_in.delete_batch(step, batch_id)
+
+    def delete_batch_read_in(self, step: ADFStep, batch_id: str):
+        raise NotImplementedError(
+            f"Deleting batch read in unsupported in {str(self)} !"
+        )
+
+    def read_batch_data(self, step: ADFStep, batch_id: str) -> SparkDataStructure:
+        self.layer_in: AWSBaseEMRLayer
+        return self.layer_in.read_batch_data(step, batch_id)
+
+    def read_full_data(self, step: ADFStep) -> SparkDataStructure:
+        self.layer_in: AWSBaseEMRLayer
+        return self.layer_in.read_full_data(step)
+
+    def write_batch_data(
+        self, ads: SparkDataStructure, step: ADFStep, batch_id: str
+    ) -> None:
+        self.layer_in: AWSBaseEMRLayer
+        self.layer_in.write_batch_data(ads, step, batch_id)
+        # TODO : fix athena connectivity inside VPC
+        # self.layer_out: AWSAthenaLayer
+        # self.layer_out.repair_partitions(step)

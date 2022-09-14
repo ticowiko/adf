@@ -17,3 +17,4 @@ from .aws_redshift_layer import (
     ManagedAWSRedshiftLayer,
     PrebuiltAWSRedshiftLayer,
 )
+from .aws_athena_layer import AWSAthenaLayer

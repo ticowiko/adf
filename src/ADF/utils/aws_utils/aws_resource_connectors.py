@@ -386,12 +386,18 @@ class AWSVPCEndpointConnector(AWSResourceConnector):
         name: str,
         vpc_id: str,
         service_name: str,
+        endpoint_type: Literal["Gateway", "GatewayLoadBalancer", "Interface"],
         route_table_ids: List[str],
+        subnet_ids: List[str],
+        private_dns_enabled: bool,
     ):
         self.name = name
         self.vpc_id = vpc_id
         self.service_name = service_name
+        self.endpoint_type = endpoint_type
         self.route_table_ids = route_table_ids
+        self.subnet_ids = subnet_ids
+        self.private_dns_enabled = private_dns_enabled
 
     # User end security configuration modifications should not be reset
     def requires_update(self, config: AWSVPCEndpointConfig) -> bool:
@@ -413,10 +419,12 @@ class AWSVPCEndpointConnector(AWSResourceConnector):
 
     def create(self) -> AWSVPCEndpointConfig:
         ec2_client.create_vpc_endpoint(
-            VpcEndpointType="Gateway",
+            VpcEndpointType=self.endpoint_type,
             VpcId=self.vpc_id,
             ServiceName=self.service_name,
             RouteTableIds=self.route_table_ids,
+            SubnetIds=self.subnet_ids,
+            PrivateDnsEnabled=self.private_dns_enabled,
             TagSpecifications=[
                 {
                     "ResourceType": "vpc-endpoint",
@@ -1492,6 +1500,7 @@ class AWSEMRServerlessConnector(AWSResourceConnector):
         return self.wait_on_application_ready()
 
     def destroy(self, config: AWSEMRServerlessConfig):
+        # TODO : cancel all jobs and stop application
         emr_serverless_client.delete_application(applicationId=config.application_id)
 
 

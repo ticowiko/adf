@@ -20,4 +20,5 @@ from .aws_data_layers import (
     AWSRedshiftLayer,
     ManagedAWSRedshiftLayer,
     PrebuiltAWSRedshiftLayer,
+    AWSAthenaLayer,
 )

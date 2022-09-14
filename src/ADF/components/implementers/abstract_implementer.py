@@ -253,6 +253,7 @@ class ADFImplementer(ABC):
 
     def setup_layers(self):
         for _, layer in self.layers.items():
+            logging.info(f"Setting up layer {layer}...")
             layer.setup_layer()
 
     def destroy_layers(self):
@@ -410,6 +411,7 @@ class ADFImplementer(ABC):
                 step.meta.format(result, batch_id, now), step, batch_id
             )
             self.state_handler.set_success(step, batch_id)
+        logging.info(f"Finished handling step result for {str(step)}::{batch_id}")
 
     def submit_step(
         self,

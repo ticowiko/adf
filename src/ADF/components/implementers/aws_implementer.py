@@ -25,11 +25,13 @@ from ADF.components.layers import (
     AWSRedshiftLayer,
     ManagedAWSRedshiftLayer,
     PrebuiltAWSRedshiftLayer,
+    AWSAthenaLayer,
 )
 from ADF.components.layer_transitions import (
     LambdaToEMRTransition,
     EMRToEMRTransition,
     EMRToRedshiftTransition,
+    EMRToAthenaTransition,
     SameHostSQLToSQL,
 )
 from ADF.components.state_handlers import SQLStateHandler
@@ -51,7 +53,6 @@ from ADF.utils import (
     AWSRouteTableConfig,
     AWSInternetGatewayConnector,
     AWSInternetGatewayConfig,
-    AWSVPCEndpointConfig,
     AWSVPCEndpointConnector,
     AWSSecurityGroupConnector,
     AWSSubnetConnector,
@@ -100,6 +101,7 @@ class AWSImplementer(ADFImplementer, ABC):
                 LambdaToEMRTransition,
                 EMRToEMRTransition,
                 EMRToRedshiftTransition,
+                EMRToAthenaTransition,
                 SameHostSQLToSQL,
             ],
         )
@@ -127,7 +129,9 @@ class AWSImplementer(ADFImplementer, ABC):
             raise ValueError(f"Unknown AWS config mode '{config['mode']}'.")
 
     def zip_emr(self):
-        logging.info("Downloading EMR package...")
+        logging.info(
+            f"Downloading EMR package from 's3://{ADFGlobalConfig.AWS_PACKAGE_BUCKET}/{ADFGlobalConfig.get_emr_package_zip_key()}'..."
+        )
         s3_client.download_file(
             Bucket=ADFGlobalConfig.AWS_PACKAGE_BUCKET,
             Key=ADFGlobalConfig.get_emr_package_zip_key(),
@@ -151,7 +155,9 @@ class AWSImplementer(ADFImplementer, ABC):
         )
 
     def zip_lambda(self):
-        logging.info("Downloading Lambda package...")
+        logging.info(
+            f"Downloading Lambda package from 's3://{ADFGlobalConfig.AWS_PACKAGE_BUCKET}/{ADFGlobalConfig.get_lambda_package_zip_key()}'..."
+        )
         s3_client.download_file(
             Bucket=ADFGlobalConfig.AWS_PACKAGE_BUCKET,
             Key=ADFGlobalConfig.get_lambda_package_zip_key(),
@@ -174,6 +180,7 @@ class AWSImplementer(ADFImplementer, ABC):
 
     def venv_package(self) -> None:
         run_command(f"venv-pack -f -o {self.local_venv_package_path}")
+        logging.info(f"Uploading venv package to s3://{self.bucket}/{self.venv_package_key}")
         s3_client.upload_file(
             Filename=self.local_venv_package_path,
             Bucket=self.bucket,
@@ -274,6 +281,7 @@ class ManagedAWSImplementer(AWSImplementer):
         emr_layers: Dict[str, Dict[str, str]] = None,
         emr_serverless_layers: Dict[str, Dict[str, str]] = None,
         redshift_layers: Dict[str, Dict[str, str]] = None,
+        athena_layers: Dict[str, Dict[str, str]] = None,
     ):
         if (not name.isalpha()) or (name.lower() != name):
             raise ValueError(
@@ -387,13 +395,30 @@ class ManagedAWSImplementer(AWSImplementer):
             subnet_connector.update_or_create().subnet_id
             for subnet_connector in self.subnet_connectors
         ]
+        private_subnet_ids = [
+            private_subnet_connector.update_or_create().subnet_id
+            for private_subnet_connector in self.private_subnet_connectors
+        ]
         self.vpc_endpoint_connector_s3 = AWSVPCEndpointConnector(
             name=f"{self.name}-private-s3-connector",
             vpc_id=vpc_config.vpc_id,
             service_name=f"com.amazonaws.{ADFGlobalConfig.AWS_REGION}.s3",
+            endpoint_type="Gateway",
             route_table_ids=[private_route_table_config.route_table_id],
+            subnet_ids=[],
+            private_dns_enabled=True,
         )
         self.vpc_endpoint_connector_s3.update_or_create()
+        self.vpc_endpoint_connector_athena = AWSVPCEndpointConnector(
+            name=f"{self.name}-private-athena-connector",
+            vpc_id=vpc_config.vpc_id,
+            service_name=f"com.amazonaws.{ADFGlobalConfig.AWS_REGION}.athena",
+            endpoint_type="Interface",
+            route_table_ids=[],
+            subnet_ids=private_subnet_ids,
+            private_dns_enabled=False,
+        )
+        self.vpc_endpoint_connector_athena.update_or_create()
         self.subnet_group_connector = AWSSubnetGroupConnector(
             name=f"{self.name}_subnet_group",
             description=f"{self.name} subnet group",
@@ -540,9 +565,7 @@ class ManagedAWSImplementer(AWSImplementer):
                         sg_id=self.layer_sg_connectors["emr_serverless"][layer]
                         .update_or_create()
                         .group_id,
-                        subnet_id=self.private_subnet_connectors[0]
-                        .update_or_create()
-                        .subnet_id,
+                        subnet_id=private_subnet_ids[0],
                         s3_icp=f"s3://{self.bucket}/{self.s3_icp}",
                         s3_fcp_template=f"s3://{self.bucket}/{self.s3_fcp_template}",
                         venv_package_key=self.venv_package_key,
@@ -571,6 +594,17 @@ class ManagedAWSImplementer(AWSImplementer):
                     )
                     for layer, layer_config in redshift_layers.items()
                 },
+                **{
+                    layer: AWSAthenaLayer(
+                        as_layer=layer,
+                        db_name=f"{self.name}_{layer}",
+                        table_prefix="",
+                        bucket=self.bucket,
+                        s3_prefix=self.get_layer_s3_prefix(layer),
+                        **layer_config,
+                    )
+                    for layer, layer_config in athena_layers.items()
+                },
             },
             state_handler_url=None
             if state_handler_rds_config is None
@@ -595,10 +629,6 @@ class ManagedAWSImplementer(AWSImplementer):
         # Create log folder
         Path(self.log_folder).mkdir(parents=True, exist_ok=True)
 
-        # Upload implementer config
-        logging.info("Uploading implementer config...")
-        s3_client.upload_file(Filename=icp, Bucket=self.bucket, Key=self.s3_icp)
-
         # Setup state handler
         logging.info("Setting up RDS DB for state handler...")
         self.state_handler = SQLStateHandler(
@@ -607,6 +637,9 @@ class ManagedAWSImplementer(AWSImplementer):
 
         # iInstall extra packages
         self.install_extra_packages()
+
+        # Zip and upload code for lambda
+        self.zip_lambda()
 
         # Create and upload venv package
         self.venv_package()
@@ -660,9 +693,6 @@ class ManagedAWSImplementer(AWSImplementer):
             Body=bootstrap_script,
         )
 
-        # Zip and upload code for lambda
-        self.zip_lambda()
-
     def output_prebuilt_config(self, icp: str) -> Dict:
         return {
             self._class_key: "ADF.components.implementers.AWSImplementer",
@@ -695,6 +725,11 @@ class ManagedAWSImplementer(AWSImplementer):
                 for layer_name, layer in self.layers.items()
                 if isinstance(layer, ManagedAWSRedshiftLayer)
             },
+            "athena_layers": {
+                layer_name: {"landing_format": layer.landing_format}
+                for layer_name, layer in self.layers.items()
+                if isinstance(layer, AWSAthenaLayer)
+            },
         }
 
     def destroy(self):
@@ -706,6 +741,10 @@ class ManagedAWSImplementer(AWSImplementer):
             run_command(f"rm {self.local_emr_zip_path}")
         except RuntimeError:
             logging.info(f"Skipped deletion of {self.local_emr_zip_path}")
+        try:
+            run_command(f"rm {self.local_venv_package_path}")
+        except RuntimeError:
+            logging.info(f"Skipped deletion of {self.local_venv_package_path}")
         s3_delete_prefix(self.bucket, self.s3_prefix)
         for profile in self.instance_profile_connectors.values():
             profile.destroy_if_exists()
@@ -743,6 +782,7 @@ class ManagedAWSImplementer(AWSImplementer):
             )
         self.internet_gateway_connector.destroy_if_exists()
         self.vpc_endpoint_connector_s3.destroy_if_exists()
+        self.vpc_endpoint_connector_athena.destroy_if_exists()
         self.vpc_connector.destroy_if_exists()
 
 
@@ -758,6 +798,7 @@ class PrebuiltAWSImplementer(AWSImplementer):
         emr_layers: Dict[str, Dict[str, str]],
         emr_serverless_layers: Dict[str, Dict[str, str]],
         redshift_layers: Dict[str, Dict[str, str]],
+        athena_layers: Dict[str, Dict[str, str]],
     ):
         self.s3_prefix = s3_prefix
         super().__init__(
@@ -795,6 +836,16 @@ class PrebuiltAWSImplementer(AWSImplementer):
                 **{
                     layer: PrebuiltAWSRedshiftLayer(as_layer=layer, **layer_config)
                     for layer, layer_config in redshift_layers.items()
+                },
+                **{
+                    layer: AWSAthenaLayer(
+                        as_layer=layer,
+                        db_name=f"{name}_{layer}",
+                        table_prefix="",
+                        bucket=bucket,
+                        s3_prefix=self.get_layer_s3_prefix(layer),
+                    )
+                    for layer, layer_config in athena_layers.items()
                 },
             },
         )
