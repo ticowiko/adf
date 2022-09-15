@@ -49,6 +49,7 @@ class AWSAthenaLayer(AbstractDataLayer):
             logging.info(kwargs.get("QueryString", ""))
             logging.info((len(log_tag) + 4) * "*")
         query_id = athena_client.start_query_execution(**kwargs)["QueryExecutionId"]
+        logging.info(f"Sent ATHENA query '{query_id}'...")
         n_retry = -1
         while (n_retries is None) or (n_retry < n_retries):
             n_retry += 1
@@ -63,7 +64,7 @@ class AWSAthenaLayer(AbstractDataLayer):
                     )
                 else:
                     return False, response
-            logging.info(f"Waiting on query '{query_id}' with state '{state}'...")
+            logging.info(f"Waiting on ATHENA query '{query_id}' with state '{state}'...")
             time.sleep(retry_rate)
         logging.info(f"Timeout awaiting query '{query_id}' execution !")
         raise RuntimeError(f"Timeout awaiting query '{query_id}' execution !")
@@ -82,7 +83,7 @@ class AWSAthenaLayer(AbstractDataLayer):
             log_tag=f"ATHENA PARTITION REPAIR {step}",
             QueryString=f"MSCK REPAIR TABLE `{self.get_table_name(step)}`",
             ResultConfiguration={
-                "OutputLocation": f"s3://{self.bucket}/{self.s3_prefix}/step_batch_partition_repair/{self.get_step_s3_suffix(step)}",
+                "OutputLocation": f"s3://{self.bucket}/{self.s3_prefix}step_batch_partition_repair/{self.get_step_s3_suffix(step)}",
             },
             QueryExecutionContext={
                 "Database": self.db_name,
@@ -97,7 +98,7 @@ class AWSAthenaLayer(AbstractDataLayer):
             log_tag=f"ATHENA DROP {step}",
             QueryString=f"DROP TABLE IF EXISTS `{self.get_table_name(step)}`",
             ResultConfiguration={
-                "OutputLocation": f"s3://{self.bucket}/{self.s3_prefix}/step_pre_setup_drop/{self.get_step_s3_suffix(step)}",
+                "OutputLocation": f"s3://{self.bucket}/{self.s3_prefix}step_pre_setup_drop/{self.get_step_s3_suffix(step)}",
             },
             QueryExecutionContext={
                 "Database": self.db_name,
@@ -142,7 +143,7 @@ class AWSAthenaLayer(AbstractDataLayer):
             log_tag=f"ATHENA CREATE {step}",
             QueryString=query_string,
             ResultConfiguration={
-                "OutputLocation": f"s3://{self.bucket}/{self.s3_prefix}/step_write_out_setup/{self.get_step_s3_suffix(step)}",
+                "OutputLocation": f"s3://{self.bucket}/{self.s3_prefix}step_write_out_setup/{self.get_step_s3_suffix(step)}",
             },
             QueryExecutionContext={
                 "Database": self.db_name,
@@ -157,7 +158,7 @@ class AWSAthenaLayer(AbstractDataLayer):
             fail_on_failure=False,
             QueryString=f"CREATE DATABASE {self.db_name}",
             ResultConfiguration={
-                "OutputLocation": f"s3://{self.bucket}/{self.s3_prefix}/db_creation_query/",
+                "OutputLocation": f"s3://{self.bucket}/{self.s3_prefix}db_creation_query/",
             },
         )
         if not success:
@@ -197,7 +198,7 @@ class AWSAthenaLayer(AbstractDataLayer):
             log_tag=f"ATHENA DROP DB {self.db_name}",
             QueryString=f"DROP DATABASE {self.db_name} CASCADE",
             ResultConfiguration={
-                "OutputLocation": f"s3://{self.bucket}/{self.s3_prefix}/db_deletion_query/",
+                "OutputLocation": f"s3://{self.bucket}/{self.s3_prefix}db_deletion_query/",
             },
         )
         if not success:

@@ -406,7 +406,7 @@ class ManagedAWSImplementer(AWSImplementer):
             endpoint_type="Gateway",
             route_table_ids=[private_route_table_config.route_table_id],
             subnet_ids=[],
-            private_dns_enabled=True,
+            private_dns_enabled=False,
         )
         self.vpc_endpoint_connector_s3.update_or_create()
         self.vpc_endpoint_connector_athena = AWSVPCEndpointConnector(
@@ -416,7 +416,7 @@ class ManagedAWSImplementer(AWSImplementer):
             endpoint_type="Interface",
             route_table_ids=[],
             subnet_ids=private_subnet_ids,
-            private_dns_enabled=False,
+            private_dns_enabled=True,
         )
         self.vpc_endpoint_connector_athena.update_or_create()
         self.subnet_group_connector = AWSSubnetGroupConnector(
@@ -768,11 +768,8 @@ class ManagedAWSImplementer(AWSImplementer):
             sg.destroy_if_exists()
         for subnet in self.subnet_connectors:
             subnet.destroy_if_exists()
-        for subnet in self.private_subnet_connectors:
-            subnet.destroy_if_exists()
         self.state_handler_sg_connector.destroy_if_exists()
         self.route_table_connector.destroy_if_exists()
-        self.private_route_table_connector.destroy_if_exists()
         vpc_config = self.vpc_connector.fetch_config()
         internet_gateway_config = self.internet_gateway_connector.fetch_config()
         if vpc_config is not None and internet_gateway_config is not None:
@@ -783,6 +780,9 @@ class ManagedAWSImplementer(AWSImplementer):
         self.internet_gateway_connector.destroy_if_exists()
         self.vpc_endpoint_connector_s3.destroy_if_exists()
         self.vpc_endpoint_connector_athena.destroy_if_exists()
+        for subnet in self.private_subnet_connectors:
+            subnet.destroy_if_exists()
+        self.private_route_table_connector.destroy_if_exists()
         self.vpc_connector.destroy_if_exists()
 
 

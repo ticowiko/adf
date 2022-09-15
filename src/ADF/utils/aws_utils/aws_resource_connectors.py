@@ -446,6 +446,8 @@ class AWSVPCEndpointConnector(AWSResourceConnector):
 
     def destroy(self, config: AWSVPCEndpointConfig):
         ec2_client.delete_vpc_endpoints(VpcEndpointIds=[config.vpc_endpoint_id])
+        while self.fetch_config() is not None:
+            time.sleep(5)
 
 
 class AWSElasticIPConnector(AWSResourceConnector):
