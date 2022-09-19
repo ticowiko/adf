@@ -1,5 +1,6 @@
 import datetime
 
+from collections import OrderedDict
 from typing import Optional, List, Dict, Tuple, Callable, Any, Union, Type
 from typing_extensions import Literal
 
@@ -23,11 +24,7 @@ class SQLDataStructure(AbstractDataStructure):
         {
             RawSQLConcretization: ADSConcretizer(
                 concretize=lambda ads: RawSQLConcretization(
-                    sql=str(
-                        ads.query().statement.compile(
-                            compile_kwargs={"literal_binds": True}
-                        )
-                    ),
+                    sql=ads.query_string(),
                     cols={
                         col_name: sql_inverse_type_map[col.type.__class__]
                         for col_name, col in ads.cols.items()
@@ -61,6 +58,11 @@ class SQLDataStructure(AbstractDataStructure):
         self.session = session
         self.subquery = subquery
         self.cols = cols
+
+    def query_string(self, labels: Optional[List] = None):
+        return str(
+            self.query(labels).statement.compile(compile_kwargs={"literal_binds": True})
+        )
 
     def query(self, labels: Optional[List] = None):
         labels = labels or list(self.cols.keys())

@@ -86,6 +86,8 @@ def create_table_meta(
     ],
     primary_key: Optional[List[str]] = None,
     include_serial_pk: bool = True,
+    include_timestamp_col: bool = True,
+    include_batch_id_col: bool = True,
     **kwargs,
 ):
     primary_key = primary_key or []
@@ -99,11 +101,21 @@ def create_table_meta(
         (base,),
         {
             "__tablename__": name,
-            ADFGlobalConfig.TIMESTAMP_COLUMN_NAME: Column(
-                DateTime,
-                nullable=False,
+            **(
+                {
+                    ADFGlobalConfig.TIMESTAMP_COLUMN_NAME: Column(
+                        DateTime,
+                        nullable=False,
+                    )
+                }
+                if include_timestamp_col
+                else {}
             ),
-            ADFGlobalConfig.BATCH_ID_COLUMN_NAME: Column(String, nullable=False),
+            **(
+                {ADFGlobalConfig.BATCH_ID_COLUMN_NAME: Column(String, nullable=False)}
+                if include_batch_id_col
+                else {}
+            ),
             **{
                 col: Column(
                     sql_type_map[t], nullable=True, primary_key=col in primary_key
@@ -138,8 +150,14 @@ def setup_postgres_db(
         pass
     for user in users:
         try:
-            cur.execute(f"CREATE USER {user['user']} WITH ENCRYPTED PASSWORD '{user['pw']}';")
+            cur.execute(
+                f"CREATE USER {user['user']} WITH ENCRYPTED PASSWORD '{user['pw']}';"
+            )
         except DuplicateObject:
-            cur.execute(f"ALTER USER {user['user']} WITH ENCRYPTED PASSWORD '{user['pw']}';")
-    cur.execute(f"GRANT ALL ON DATABASE {db} TO {', '.join([user['user'] for user in users])};")
+            cur.execute(
+                f"ALTER USER {user['user']} WITH ENCRYPTED PASSWORD '{user['pw']}';"
+            )
+    cur.execute(
+        f"GRANT ALL ON DATABASE {db} TO {', '.join([user['user'] for user in users])};"
+    )
     conn.close()

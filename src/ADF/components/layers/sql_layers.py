@@ -69,7 +69,7 @@ class SQLDataLayer(AbstractDataLayer, ABC):
                     f"Cannot create session from empty url in {self}. Are you sure you've setup this layer ?"
                 )
             self._session = sessionmaker(
-                bind=create_engine(f"{self.url}", **self.session_kwargs)
+                bind=create_engine(self.url, **self.session_kwargs)
             )()
         return self._session
 
@@ -215,11 +215,9 @@ class SQLDataLayer(AbstractDataLayer, ABC):
     def detect_batches(self, step: ADFStep) -> List[str]:
         return [
             e[ADFGlobalConfig.BATCH_ID_COLUMN_NAME]
-            for e in self.session.query(
-                self.get_step_table_meta(step).__table__.c[
-                    ADFGlobalConfig.BATCH_ID_COLUMN_NAME
-                ]
-            ).distinct()
+            for e in self.read_full_data(step)
+            .distinct([ADFGlobalConfig.BATCH_ID_COLUMN_NAME])
+            .to_list_of_dicts()
         ]
 
     def delete_step(self, step: ADFStep) -> None:

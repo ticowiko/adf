@@ -9,7 +9,7 @@ from sqlalchemy.exc import ProgrammingError
 from ADF.components.data_structures import (
     SQLDataStructure,
     PandasDataStructure,
-    SparkDataStructure,
+    SparkDataStructure, AbstractDataStructure,
 )
 from ADF.components.flow_config import ADFStep
 from ADF.components.layer_transitions import ADLTransition
@@ -383,3 +383,50 @@ class EMRToAthenaTransition(ADLTransition):
         # TODO : fix athena connectivity inside VPC
         # self.layer_out: AWSAthenaLayer
         # self.layer_out.repair_partitions(step)
+
+
+class AthenaToAthenaTransition(ADLTransition):
+    def validate(self) -> None:
+        super().validate()
+        self.layer_in: AWSAthenaLayer
+        self.layer_out: AWSAthenaLayer
+        if self.layer_in.db_name != self.layer_out.db_name:
+            raise ValueError(f"Cannot create transition {self} across different DBs")
+
+    def default_to_write_out(self) -> bool:
+        return True
+
+    @staticmethod
+    def get_handled_layers_in() -> List[Type[AbstractDataLayer]]:
+        return [AWSAthenaLayer]
+
+    @staticmethod
+    def get_handled_layers_out() -> List[Type[AbstractDataLayer]]:
+        return [AWSAthenaLayer]
+
+    def setup_write_out(self, step_in: ADFStep, step_out: ADFStep) -> None:
+        pass
+
+    def setup_read_in(self, step_in: ADFStep, step_out: ADFStep) -> None:
+        pass
+
+    def delete_step_write_out(self, step: ADFStep):
+        self.layer_out.delete_step(step)
+
+    def delete_step_read_in(self, step: ADFStep):
+        self.layer_out.delete_step(step)
+
+    def delete_batch_write_out(self, step: ADFStep, batch_id: str):
+        self.layer_out.delete_batch(step, batch_id)
+
+    def delete_batch_read_in(self, step: ADFStep, batch_id: str):
+        self.layer_out.delete_batch(step, batch_id)
+
+    def read_batch_data(self, step: ADFStep, batch_id: str) -> AbstractDataStructure:
+        return self.layer_in.read_batch_data(step, batch_id)
+
+    def read_full_data(self, step: ADFStep) -> AbstractDataStructure:
+        return self.layer_in.read_full_data(step)
+
+    def write_batch_data(self, ads: AbstractDataStructure, step: ADFStep, batch_id: str) -> None:
+        self.layer_out.write_batch_data(ads, step, batch_id)

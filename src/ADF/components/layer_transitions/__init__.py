@@ -6,4 +6,5 @@ from .aws_transitions import (
     EMRToEMRTransition,
     EMRToRedshiftTransition,
     EMRToAthenaTransition,
+    AthenaToAthenaTransition,
 )

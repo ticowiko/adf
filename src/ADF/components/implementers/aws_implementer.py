@@ -32,6 +32,7 @@ from ADF.components.layer_transitions import (
     EMRToEMRTransition,
     EMRToRedshiftTransition,
     EMRToAthenaTransition,
+    AthenaToAthenaTransition,
     SameHostSQLToSQL,
 )
 from ADF.components.state_handlers import SQLStateHandler
@@ -102,6 +103,7 @@ class AWSImplementer(ADFImplementer, ABC):
                 EMRToEMRTransition,
                 EMRToRedshiftTransition,
                 EMRToAthenaTransition,
+                AthenaToAthenaTransition,
                 SameHostSQLToSQL,
             ],
         )
@@ -180,7 +182,9 @@ class AWSImplementer(ADFImplementer, ABC):
 
     def venv_package(self) -> None:
         run_command(f"venv-pack -f -o {self.local_venv_package_path}")
-        logging.info(f"Uploading venv package to s3://{self.bucket}/{self.venv_package_key}")
+        logging.info(
+            f"Uploading venv package to s3://{self.bucket}/{self.venv_package_key}"
+        )
         s3_client.upload_file(
             Filename=self.local_venv_package_path,
             Bucket=self.bucket,
@@ -597,7 +601,7 @@ class ManagedAWSImplementer(AWSImplementer):
                 **{
                     layer: AWSAthenaLayer(
                         as_layer=layer,
-                        db_name=f"{self.name}_{layer}",
+                        db_name=f"{self.name}",
                         table_prefix="",
                         bucket=self.bucket,
                         s3_prefix=self.get_layer_s3_prefix(layer),
@@ -726,7 +730,7 @@ class ManagedAWSImplementer(AWSImplementer):
                 if isinstance(layer, ManagedAWSRedshiftLayer)
             },
             "athena_layers": {
-                layer_name: {"landing_format": layer.landing_format}
+                layer_name: layer.output_prebuilt_config()
                 for layer_name, layer in self.layers.items()
                 if isinstance(layer, AWSAthenaLayer)
             },
@@ -809,28 +813,15 @@ class PrebuiltAWSImplementer(AWSImplementer):
             state_handler_url=state_handler_url,
             layers={
                 **{
-                    layer: PrebuiltAWSLambdaLayer(
-                        as_layer=layer,
-                        bucket=bucket,
-                        s3_prefix=self.get_layer_s3_prefix(layer),
-                        **layer_config,
-                    )
+                    layer: PrebuiltAWSLambdaLayer(as_layer=layer, **layer_config)
                     for layer, layer_config in lambda_layers.items()
                 },
                 **{
-                    layer: PrebuiltAWSEMRLayer(
-                        as_layer=layer,
-                        bucket=bucket,
-                        s3_prefix=self.get_layer_s3_prefix(layer),
-                        **layer_config,
-                    )
+                    layer: PrebuiltAWSEMRLayer(as_layer=layer, **layer_config)
                     for layer, layer_config in emr_layers.items()
                 },
                 **{
-                    layer: PrebuiltAWSEMRServerlessLayer(
-                        as_layer=layer,
-                        **layer_config,
-                    )
+                    layer: PrebuiltAWSEMRServerlessLayer(as_layer=layer, **layer_config)
                     for layer, layer_config in emr_serverless_layers.items()
                 },
                 **{
@@ -838,13 +829,7 @@ class PrebuiltAWSImplementer(AWSImplementer):
                     for layer, layer_config in redshift_layers.items()
                 },
                 **{
-                    layer: AWSAthenaLayer(
-                        as_layer=layer,
-                        db_name=f"{name}_{layer}",
-                        table_prefix="",
-                        bucket=bucket,
-                        s3_prefix=self.get_layer_s3_prefix(layer),
-                    )
+                    layer: AWSAthenaLayer(as_layer=layer,**layer_config)
                     for layer, layer_config in athena_layers.items()
                 },
             },
