@@ -1,6 +1,5 @@
 import datetime
 
-from collections import OrderedDict
 from typing import Optional, List, Dict, Tuple, Callable, Any, Union, Type
 from typing_extensions import Literal
 
@@ -162,6 +161,7 @@ class SQLDataStructure(AbstractDataStructure):
         l_map: Dict[str, str] = None,
         r_map: Dict[str, str] = None,
     ) -> "SQLDataStructure":
+        output_cols = list(l_map.values()) + list(r_map.values())
         if how == "cross":
             subquery = self.session.query(
                 *[col.label(l_map[label]) for label, col in self.cols.items()],
@@ -170,7 +170,7 @@ class SQLDataStructure(AbstractDataStructure):
             return SQLDataStructure(
                 session=self.session,
                 subquery=subquery,
-                cols={col: subquery.c[col] for col in {**l_map, **r_map}.values()},
+                cols={col: subquery.c[col] for col in output_cols},
             )
         elif how in ["left", "right", "outer", "inner"]:
             condition = literal(True)
@@ -196,7 +196,7 @@ class SQLDataStructure(AbstractDataStructure):
             return SQLDataStructure(
                 session=self.session,
                 subquery=subquery,
-                cols={col: subquery.c[col] for col in {**l_map, **r_map}.values()},
+                cols={col: subquery.c[col] for col in output_cols},
             )
 
     def _group_by(

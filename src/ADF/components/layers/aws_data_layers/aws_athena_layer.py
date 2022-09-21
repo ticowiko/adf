@@ -363,11 +363,15 @@ class AWSAthenaLayer(AbstractDataLayer):
         self, ads: SQLDataStructure, step: ADFStep, batch_id: str
     ) -> None:
         self.insert(ads, step, batch_id)
+        self.repair_partitions(step)
 
     def delete_step(self, step: ADFStep) -> None:
-        raise NotImplementedError(
-            f"Deleting step {str(step)} currently unsupported in {str(self)} !"
+        s3_delete_prefix(
+            self.bucket,
+            f"{self.get_step_s3_prefix(step)}",
+            ignore_nosuchbucket=True,
         )
+        self.repair_partitions(step)
 
     def delete_batch(self, step: ADFStep, batch_id: str) -> None:
         s3_delete_prefix(
@@ -375,6 +379,7 @@ class AWSAthenaLayer(AbstractDataLayer):
             f"{self.get_step_s3_prefix(step)}{ADFGlobalConfig.BATCH_ID_COLUMN_NAME}={batch_id}/",
             ignore_nosuchbucket=True,
         )
+        self.repair_partitions(step)
 
     def output_prebuilt_config(self) -> Dict[str, str]:
         return {
