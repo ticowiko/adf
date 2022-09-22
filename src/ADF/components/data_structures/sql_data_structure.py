@@ -59,9 +59,17 @@ class SQLDataStructure(AbstractDataStructure):
         self.cols = cols
 
     def query_string(self, labels: Optional[List] = None):
-        return str(
-            self.query(labels).statement.compile(compile_kwargs={"literal_binds": True})
+        dialect = self.session.get_bind().dialect
+        ret = str(
+            self.query(labels).statement.compile(dialect=dialect, compile_kwargs={"literal_binds": True})
         )
+        try:
+            from pyathena.sqlalchemy_athena import AthenaDialect
+            if isinstance(dialect, AthenaDialect):
+                ret = ret.replace("AS STRING", "AS VARCHAR")
+        except ModuleNotFoundError:
+            pass
+        return ret
 
     def query(self, labels: Optional[List] = None):
         labels = labels or list(self.cols.keys())

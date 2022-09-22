@@ -12,7 +12,7 @@ from sqlalchemy.engine import Connection
 from ADF.exceptions import UnhandledMeta
 from ADF.components.layers import AbstractDataLayer
 from ADF.components.data_structures import SQLDataStructure
-from ADF.components.flow_config import ADFStep
+from ADF.components.flow_config import ADFStep, ADFLandingStep
 from ADF.utils import create_table_meta
 from ADF.config import ADFGlobalConfig
 
@@ -127,6 +127,7 @@ class SQLDataLayer(AbstractDataLayer, ABC):
                 primary_key=step.get_partition_key()
                 if self.add_partition_to_pk()
                 else [],
+                include_timestamp_col=not isinstance(step, ADFLandingStep),
                 **self.get_step_table_creation_kwargs(step),
             )
         return self.table_metas[step]

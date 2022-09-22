@@ -8,6 +8,7 @@ from boto3 import Session as Boto3Session
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker, DeclarativeMeta, Session
+from sqlalchemy.engine import Engine
 
 from ADF.config import ADFGlobalConfig
 from ADF.utils import athena_client, create_table_meta, s3_delete_prefix
@@ -48,17 +49,27 @@ class AWSAthenaLayer(AbstractDataLayer):
 
         self.table_metas: Dict[ADFStep, DeclarativeMeta] = {}
         self.base = declarative_base()
+        self._url = None
+        self._engine = None
         self._session = None
 
     @property
-    def url(self) -> Optional[str]:
-        credentials = Boto3Session().get_credentials().get_frozen_credentials()
-        return f"awsathena+rest://{quote_plus(credentials.access_key)}:{quote_plus(credentials.secret_key)}@athena.{ADFGlobalConfig.AWS_REGION}.amazonaws.com:443/{self.db_name}?s3_staging_dir={quote_plus(f's3://{self.bucket}/{self.s3_prefix}staging/')}"
+    def url(self) -> str:
+        if self._url is None:
+            credentials = Boto3Session().get_credentials().get_frozen_credentials()
+            self._url = f"awsathena+rest://{quote_plus(credentials.access_key)}:{quote_plus(credentials.secret_key)}@athena.{ADFGlobalConfig.AWS_REGION}.amazonaws.com:443/{self.db_name}?s3_staging_dir={quote_plus(f's3://{self.bucket}/{self.s3_prefix}staging/')}"
+        return self._url
+
+    @property
+    def engine(self) -> Engine:
+        if self._engine is None:
+            self._engine = create_engine(self.url)
+        return self._engine
 
     @property
     def session(self) -> Session:
         if self._session is None:
-            self._session = sessionmaker(bind=create_engine(self.url))()
+            self._session = sessionmaker(bind=self.engine)()
         return self._session
 
     def validate_step(self, step: ADFStep):
@@ -350,7 +361,7 @@ class AWSAthenaLayer(AbstractDataLayer):
             retry_rate=5,
             n_retries=12,
             log_tag=f"ATHENA INSERT {step}::{batch_id}",
-            QueryString=f'INSERT INTO "{self.get_table_name(step)}"\n{ads.query_string(self.get_step_columns(step)).replace("AS FLOAT", "AS REAL")}',
+            QueryString=f'INSERT INTO "{self.get_table_name(step)}"\n{ads.query_string(self.get_step_columns(step))}',
             ResultConfiguration={
                 "OutputLocation": f"s3://{self.bucket}/{self.s3_prefix}inserts/{self.get_step_s3_suffix(step)}batch_id={batch_id}/",
             },
