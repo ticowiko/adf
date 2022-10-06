@@ -41,7 +41,7 @@ from ADF.exceptions import (
     CombinationStepError,
 )
 from ADF.config import ADFGlobalConfig
-from ADF.utils import s3_client, s3_url_to_bucket_and_key
+from ADF.utils import s3_client, s3_url_to_bucket_and_key, run_command
 
 
 class ADFImplementer(ABC):
@@ -194,8 +194,13 @@ class ADFImplementer(ABC):
     def setup_implementer_flows(self, flows: ADFCollection, icp: str, fcp: str):
         pass
 
+    def install_extra_packages(self) -> None:
+        for extra_package in self.extra_packages:
+            logging.info(f"Installing package '{extra_package}' locally...")
+            run_command("python3 setup.py install", cwd=extra_package)
+
     @abstractmethod
-    def update_code(self):
+    def update_code(self) -> None:
         pass
 
     @abstractmethod

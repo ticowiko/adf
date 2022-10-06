@@ -52,9 +52,8 @@ class LocalImplementer(ADFImplementer, ABC):
     def setup_implementer_flows(self, flows: ADFCollection, icp: str, fcp: str):
         pass
 
-    def update_code(self):
-        for extra_package in self.extra_packages:
-            run_command("python3 setup.py install", cwd=extra_package)
+    def update_code(self) -> None:
+        self.install_extra_packages()
 
     def destroy(self):
         if os.path.isdir(self.root_path):

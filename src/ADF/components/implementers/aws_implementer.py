@@ -4,6 +4,7 @@ from abc import ABC
 from io import BytesIO
 from pathlib import Path
 from typing import Optional, Dict, Union, Any
+from typing_extensions import Literal
 from zipfile import ZipFile, ZIP_DEFLATED
 
 from ADF.components.flow_config import ADFStep, ADFCollection
@@ -188,11 +189,6 @@ class AWSImplementer(ADFImplementer, ABC):
             Key=self.venv_package_key,
         )
 
-    def install_extra_packages(self) -> None:
-        for extra_package in self.extra_packages:
-            logging.info(f"Installing package '{extra_package}' locally...")
-            run_command("python3 setup.py install", cwd=extra_package)
-
     def upload_launcher(self) -> None:
         logging.info(
             f"Uploading launcher to s3://{self.bucket}/{self.s3_launcher_key}..."
@@ -203,14 +199,48 @@ class AWSImplementer(ADFImplementer, ABC):
             Key=self.s3_launcher_key,
         )
 
-    def update_code(self):
+    def layer_counts(
+        self,
+    ) -> Dict[Literal["lambda", "emr", "emr_serverless", "redshift", "athena"], int]:
+        counts = {
+            layer: 0
+            for layer in [
+                "lambda",
+                "emr",
+                "emr_serverless",
+                "redshift",
+                "athena",
+            ]
+        }
+        for layer in self.layers.values():
+            if isinstance(layer, AWSLambdaLayer):
+                counts["lambda"] += 1
+                continue
+            if isinstance(layer, AWSEMRLayer):
+                counts["emr"] += 1
+                continue
+            if isinstance(layer, AWSEMRServerlessLayer):
+                counts["emr_serverless"] += 1
+                continue
+            if isinstance(layer, AWSRedshiftLayer):
+                counts["redshift"] += 1
+                continue
+            if isinstance(layer, AWSAthenaLayer):
+                counts["athena"] += 1
+                continue
+        return counts
+
+    def update_code(self) -> None:
         logging.info(f"EXTRA PACKAGES : {self.extra_packages}")
         self.install_extra_packages()
-        self.venv_package()
-        self.zip_emr()
-        logging.info("Reinstalling EMR code...")
+        layer_counts = self.layer_counts()
+        if layer_counts["emr_serverless"]:
+            self.venv_package()
+        if layer_counts["emr"]:
+            self.zip_emr()
         for layer in self.layers.values():
             if isinstance(layer, AWSEMRLayer):
+                logging.info(f"Reinstalling EMR code for layer '{layer}'...")
                 emr_config = layer.emr_config
                 cmds = [
                     "sudo rm -rf /home/hadoop/adf/* /home/hadoop/adf/.[!.]*",
@@ -228,10 +258,11 @@ class AWSImplementer(ADFImplementer, ABC):
                     run_command(
                         f"ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i {layer.emr_config.get_key_pair_name()} hadoop@{emr_config.public_dns} '{cmd}'"
                     )
-        self.zip_lambda()
-        logging.info("Reinstalling Lambda code...")
+        if layer_counts["lambda"]:
+            self.zip_lambda()
         for layer in self.layers.values():
             if isinstance(layer, AWSLambdaLayer):
+                logging.info(f"Reinstalling Lambda code for layer '{layer}'...")
                 lambda_config = layer.lambda_config
                 lambda_client.get_waiter("function_updated").wait(
                     FunctionName=lambda_config.name
@@ -381,13 +412,19 @@ class ManagedAWSImplementer(AWSImplementer):
                     bucket=self.bucket,
                     s3_prefix=self.get_layer_s3_prefix(layer),
                     name=f"{self.name.lower()}-{layer.lower()}-emr-serverless",
-                    role_arn=self.optional_fetch_parameter(self.iam_role_connectors[layer], "arn", ""),
+                    role_arn=self.optional_fetch_parameter(
+                        self.iam_role_connectors[layer], "arn", ""
+                    ),
                     environ={
                         "RDS_PW": AWSRDSConfig.get_master_password(),
                         "REDSHIFT_PW": AWSRedshiftConfig.get_master_password(),
                         "AWS_DEFAULT_REGION": ADFGlobalConfig.AWS_REGION,
                     },
-                    sg_id=self.optional_fetch_parameter(self.layer_sg_connectors["emr_serverless"][layer], "group_id", ""),
+                    sg_id=self.optional_fetch_parameter(
+                        self.layer_sg_connectors["emr_serverless"][layer],
+                        "group_id",
+                        "",
+                    ),
                     subnet_id=self.optional_fetch_parameter(
                         self.private_subnet_connectors[0], "subnet_id"
                     ),
@@ -405,9 +442,13 @@ class ManagedAWSImplementer(AWSImplementer):
                     identifer=layer_config.get(
                         "identifier", f"{self.name.lower()}-redshift"
                     ),
-                    role_arn=self.optional_fetch_parameter(self.iam_role_connectors[layer], "arn", ""),
+                    role_arn=self.optional_fetch_parameter(
+                        self.iam_role_connectors[layer], "arn", ""
+                    ),
                     table_prefix=f"{layer}_",
-                    sg_id=self.optional_fetch_parameter(self.layer_sg_connectors["redshift"][layer], "group_id", ""),
+                    sg_id=self.optional_fetch_parameter(
+                        self.layer_sg_connectors["redshift"][layer], "group_id", ""
+                    ),
                     cluster_subnet_group_name=self.optional_fetch_parameter(
                         self.cluster_subnet_group_connector, "name"
                     ),
@@ -438,7 +479,11 @@ class ManagedAWSImplementer(AWSImplementer):
         )
         if create:
             self.vpc_connector.update_or_create()
-        vpc_id = self.vpc_connector.update_or_create().vpc_id if create else "vpc-adf-dummy-id"
+        vpc_id = (
+            self.vpc_connector.update_or_create().vpc_id
+            if create
+            else "vpc-adf-dummy-id"
+        )
         self.internet_gateway_connector = AWSInternetGatewayConnector(
             name=f"{self.name}_ig", vpc_id=vpc_id
         )
