@@ -252,12 +252,13 @@ class ADFImplementer(ABC):
         }
 
     def setup_layers(self):
-        for _, layer in self.layers.items():
+        for layer in self.layers.values():
             logging.info(f"Setting up layer {layer}...")
             layer.setup_layer()
 
     def destroy_layers(self):
-        for _, layer in self.layers.items():
+        for layer in self.layers.values():
+            logging.info(f"Destroying layer {layer}...")
             layer.destroy()
 
     def setup_flows(self, flows: ADFCollection, icp: str, fcp: str):

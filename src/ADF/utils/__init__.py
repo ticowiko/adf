@@ -35,6 +35,7 @@ from .aws_utils import (
     emr_cluster_running_waiter,
     s3_delete_prefix,
     s3_list_objects,
+    s3_list_folders,
     s3_url_to_bucket_and_key,
     AWSResourceConfig,
     AWSResourceConnector,

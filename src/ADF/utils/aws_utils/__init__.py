@@ -66,4 +66,9 @@ from .aws_resource_connectors import (
     AWSEMRServerlessConnector,
     AWSRedshiftConnector,
 )
-from .misc import s3_delete_prefix, s3_list_objects, s3_url_to_bucket_and_key
+from .misc import (
+    s3_delete_prefix,
+    s3_list_objects,
+    s3_list_folders,
+    s3_url_to_bucket_and_key,
+)

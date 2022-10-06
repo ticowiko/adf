@@ -96,33 +96,25 @@ def create_table_meta(
         extra_cols[ADFGlobalConfig.SQL_PK_COLUMN_NAME] = Column(
             Integer, primary_key=True, autoincrement=True
         )
+    if include_timestamp_col:
+        extra_cols[ADFGlobalConfig.TIMESTAMP_COLUMN_NAME] = Column(
+                        DateTime,
+                        nullable=False,
+                    )
+    if include_batch_id_col:
+        extra_cols[ADFGlobalConfig.BATCH_ID_COLUMN_NAME] = Column(String, nullable=False)
     return type(
         name,
         (base,),
         {
             "__tablename__": name,
-            **(
-                {
-                    ADFGlobalConfig.TIMESTAMP_COLUMN_NAME: Column(
-                        DateTime,
-                        nullable=False,
-                    )
-                }
-                if include_timestamp_col
-                else {}
-            ),
-            **(
-                {ADFGlobalConfig.BATCH_ID_COLUMN_NAME: Column(String, nullable=False)}
-                if include_batch_id_col
-                else {}
-            ),
+            **extra_cols,
             **{
                 col: Column(
                     sql_type_map[t], nullable=True, primary_key=col in primary_key
                 )
                 for col, t in cols.items()
             },
-            **extra_cols,
             **kwargs,
         },
     )

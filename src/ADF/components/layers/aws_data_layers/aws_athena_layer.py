@@ -11,7 +11,12 @@ from sqlalchemy.orm import declarative_base, sessionmaker, DeclarativeMeta, Sess
 from sqlalchemy.engine import Engine
 
 from ADF.config import ADFGlobalConfig
-from ADF.utils import athena_client, create_table_meta, s3_delete_prefix
+from ADF.utils import (
+    athena_client,
+    create_table_meta,
+    s3_delete_prefix,
+    s3_list_folders,
+)
 from ADF.exceptions import UnhandledMeta
 from ADF.components.data_structures import SQLDataStructure
 from ADF.components.flow_config import ADFStep, ADFLandingStep
@@ -196,6 +201,9 @@ class AWSAthenaLayer(AbstractDataLayer):
                 "TBLPROPERTIES ('skip.header.line.count'='1')"
                 if step_format == "csv"
                 else "",
+                "TBLPROPERTIES ('parquet.compression'='gzip')"
+                if step_format == "parquet"
+                else "",
             ]
         )
         self.await_query_execution(
@@ -265,11 +273,14 @@ class AWSAthenaLayer(AbstractDataLayer):
             )
 
     def detect_batches(self, step: ADFStep) -> List[str]:
+        step_prefix = self.get_step_s3_prefix(step)
         return [
-            e[ADFGlobalConfig.BATCH_ID_COLUMN_NAME]
-            for e in self.read_full_data(step)
-            .distinct([ADFGlobalConfig.BATCH_ID_COLUMN_NAME])
-            .to_list_of_dicts()
+            partition[partition.find("=") + 1 : -1]
+            for partition in [
+                prefix[len(step_prefix) :]
+                for prefix in s3_list_folders(self.bucket, step_prefix)
+            ]
+            if partition.startswith(f"{ADFGlobalConfig.BATCH_ID_COLUMN_NAME}=")
         ]
 
     def destroy(self) -> None:

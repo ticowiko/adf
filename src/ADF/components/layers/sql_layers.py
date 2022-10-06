@@ -138,6 +138,18 @@ class SQLDataLayer(AbstractDataLayer, ABC):
             self.get_step_table_meta(step)
         self.base.metadata.create_all(self.session.get_bind())
 
+    def get_step_tech_cols(self, step: ADFStep) -> List[str]:
+        return (
+            [
+                ADFGlobalConfig.BATCH_ID_COLUMN_NAME,
+            ]
+            if isinstance(step, ADFLandingStep)
+            else [
+                ADFGlobalConfig.BATCH_ID_COLUMN_NAME,
+                ADFGlobalConfig.TIMESTAMP_COLUMN_NAME,
+            ]
+        )
+
     def read_batch_data(self, step: ADFStep, batch_id: str) -> SQLDataStructure:
         self.validate_step(step)
         table = self.get_step_table_meta(step)
@@ -152,10 +164,7 @@ class SQLDataLayer(AbstractDataLayer, ABC):
             cols={
                 col_name: subquery.c[col_name]
                 for col_name in [col.name for col in step.meta.columns]
-                + [
-                    ADFGlobalConfig.BATCH_ID_COLUMN_NAME,
-                    ADFGlobalConfig.TIMESTAMP_COLUMN_NAME,
-                ]
+                + self.get_step_tech_cols(step)
             },
         )
 
@@ -168,10 +177,8 @@ class SQLDataLayer(AbstractDataLayer, ABC):
             cols={
                 col_name: subquery.c[col_name]
                 for col_name in [col.name for col in step.meta.columns]
-                + [
-                    ADFGlobalConfig.BATCH_ID_COLUMN_NAME,
-                    ADFGlobalConfig.TIMESTAMP_COLUMN_NAME,
-                ]
+                + [ADFGlobalConfig.BATCH_ID_COLUMN_NAME]
+                + self.get_step_tech_cols(step)
             },
         )
 
