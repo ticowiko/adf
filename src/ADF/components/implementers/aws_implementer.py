@@ -479,10 +479,8 @@ class ManagedAWSImplementer(AWSImplementer):
         )
         if create:
             self.vpc_connector.update_or_create()
-        vpc_id = (
-            self.vpc_connector.update_or_create().vpc_id
-            if create
-            else "vpc-adf-dummy-id"
+        vpc_id = self.optional_fetch_parameter(
+            self.vpc_connector, "vpc_id", "vpc-adf-dummy-id"
         )
         self.internet_gateway_connector = AWSInternetGatewayConnector(
             name=f"{self.name}_ig", vpc_id=vpc_id
