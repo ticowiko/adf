@@ -7,6 +7,12 @@ LAMBDA_ZIP_NAME := lambda_package.zip
 install_dev:
 	python setup.py install --dev
 
+lint:
+	black src/
+
+lint_check:
+	black src/ --check
+
 install:
 	python setup.py install
 
