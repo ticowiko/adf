@@ -10,14 +10,16 @@ from ADF.components.data_structures import (
     SQLDataStructure,
     PandasDataStructure,
     SparkDataStructure,
+    AbstractDataStructure,
 )
 from ADF.components.flow_config import ADFStep
 from ADF.components.layer_transitions import ADLTransition
 from ADF.components.layers import (
     AbstractDataLayer,
     AWSLambdaLayer,
-    AWSEMRLayer,
+    AWSBaseEMRLayer,
     AWSRedshiftLayer,
+    AWSAthenaLayer,
 )
 from ADF.exceptions import ADLUnsupportedTransition
 from ADF.utils import MetaCSVToPandas, s3_list_objects
@@ -34,7 +36,7 @@ class LambdaToEMRTransition(ADLTransition):
 
     @staticmethod
     def get_handled_layers_out() -> List[Type[AbstractDataLayer]]:
-        return [AWSEMRLayer]
+        return [AWSBaseEMRLayer]
 
     def write_batch_data(
         self, ads: PandasDataStructure, step: ADFStep, batch_id: str
@@ -43,7 +45,7 @@ class LambdaToEMRTransition(ADLTransition):
 
     def read_batch_data(self, step: ADFStep, batch_id: str) -> SparkDataStructure:
         self.layer_in: AWSLambdaLayer
-        self.layer_out: AWSEMRLayer
+        self.layer_out: AWSBaseEMRLayer
         ads = SparkDataStructure(
             df=self.layer_out.spark.read.format("csv")
             .options(header="true", inferSchema="true")
@@ -55,7 +57,7 @@ class LambdaToEMRTransition(ADLTransition):
 
     def read_full_data(self, step: ADFStep) -> SparkDataStructure:
         self.layer_in: AWSLambdaLayer
-        self.layer_out: AWSEMRLayer
+        self.layer_out: AWSBaseEMRLayer
         ads = SparkDataStructure(
             df=self.layer_out.spark.createDataFrame(
                 self.layer_in.read_full_data(step).df
@@ -88,11 +90,11 @@ class EMRToEMRTransition(ADLTransition):
 
     @staticmethod
     def get_handled_layers_in() -> List[Type[AbstractDataLayer]]:
-        return [AWSEMRLayer]
+        return [AWSBaseEMRLayer]
 
     @staticmethod
     def get_handled_layers_out() -> List[Type[AbstractDataLayer]]:
-        return [AWSEMRLayer]
+        return [AWSBaseEMRLayer]
 
     def setup_write_out(self, step_in: ADFStep, step_out: ADFStep) -> None:
         pass
@@ -101,17 +103,17 @@ class EMRToEMRTransition(ADLTransition):
         pass
 
     def read_batch_data(self, step: ADFStep, batch_id: str) -> SparkDataStructure:
-        self.layer_in: AWSEMRLayer
+        self.layer_in: AWSBaseEMRLayer
         return self.layer_in.read_batch_data(step, batch_id)
 
     def read_full_data(self, step: ADFStep) -> SparkDataStructure:
-        self.layer_in: AWSEMRLayer
+        self.layer_in: AWSBaseEMRLayer
         return self.layer_in.read_full_data(step)
 
     def write_batch_data(
         self, ads: SparkDataStructure, step: ADFStep, batch_id: str
     ) -> None:
-        self.layer_out: AWSEMRLayer
+        self.layer_out: AWSBaseEMRLayer
         self.layer_out.write_batch_data(ads, step, batch_id)
 
     def delete_step_write_out(self, step: ADFStep):
@@ -145,7 +147,7 @@ class EMRToRedshiftTransition(ADLTransition):
 
     @staticmethod
     def get_handled_layers_in() -> List[Type[AbstractDataLayer]]:
-        return [AWSEMRLayer]
+        return [AWSBaseEMRLayer]
 
     @staticmethod
     def get_handled_layers_out() -> List[Type[AbstractDataLayer]]:
@@ -164,7 +166,7 @@ class EMRToRedshiftTransition(ADLTransition):
         self.layer_out.conn.execute(statement)
 
     def create_spectrum_table(self, step: ADFStep) -> None:
-        self.layer_in: AWSEMRLayer
+        self.layer_in: AWSBaseEMRLayer
         self.layer_out: AWSRedshiftLayer
         self.layer_out.validate_step(step)
         table_name = self.layer_out.get_table_name(step)
@@ -246,7 +248,7 @@ class EMRToRedshiftTransition(ADLTransition):
         return val
 
     def add_step_partitions(self, step: ADFStep):
-        self.layer_in: AWSEMRLayer
+        self.layer_in: AWSBaseEMRLayer
         self.layer_out: AWSRedshiftLayer
         table_name = self.layer_out.get_table_name(step)
         keys = s3_list_objects(
@@ -280,8 +282,7 @@ class EMRToRedshiftTransition(ADLTransition):
     def write_batch_data(
         self, ads: SparkDataStructure, step: ADFStep, batch_id: str
     ) -> None:
-        self.layer_in: AWSEMRLayer
-        self.layer_out: AWSRedshiftLayer
+        self.layer_in: AWSBaseEMRLayer
         self.layer_in.write_batch_data(ads, step, batch_id)
         self.add_step_partitions(step)
 
@@ -325,3 +326,110 @@ class EMRToRedshiftTransition(ADLTransition):
         self.layer_out.delete_batch(step, batch_id)
         for upstream_step in step.get_upstream_steps():
             self.layer_in.delete_batch(upstream_step, batch_id)
+
+
+class EMRToAthenaTransition(ADLTransition):
+    def default_to_write_out(self) -> bool:
+        return True
+
+    @staticmethod
+    def get_handled_layers_in() -> List[Type[AbstractDataLayer]]:
+        return [AWSBaseEMRLayer]
+
+    @staticmethod
+    def get_handled_layers_out() -> List[Type[AbstractDataLayer]]:
+        return [AWSAthenaLayer]
+
+    def setup_write_out(self, step_in: ADFStep, step_out: ADFStep) -> None:
+        self.layer_in: AWSBaseEMRLayer
+        self.layer_out: AWSAthenaLayer
+        self.layer_out.create_external_table(
+            step=step_out,
+            bucket=self.layer_in.bucket,
+            s3_prefix=self.layer_in.get_step_prefix(step_out),
+            step_format=self.layer_in.get_step_format(step_out),
+            partition_cols=self.layer_in.get_step_partition_key(step_out),
+        )
+
+    def setup_read_in(self, step_in: ADFStep, step_out: ADFStep) -> None:
+        raise NotImplementedError(f"Setting up read in unsupported in {str(self)} !")
+
+    def delete_step_write_out(self, step: ADFStep):
+        self.layer_in.delete_step(step)
+
+    def delete_step_read_in(self, step: ADFStep):
+        raise NotImplementedError(f"Deleting step read in unsupported in {str(self)} !")
+
+    def delete_batch_write_out(self, step: ADFStep, batch_id: str):
+        self.layer_in.delete_batch(step, batch_id)
+
+    def delete_batch_read_in(self, step: ADFStep, batch_id: str):
+        raise NotImplementedError(
+            f"Deleting batch read in unsupported in {str(self)} !"
+        )
+
+    def read_batch_data(self, step: ADFStep, batch_id: str) -> SparkDataStructure:
+        self.layer_in: AWSBaseEMRLayer
+        return self.layer_in.read_batch_data(step, batch_id)
+
+    def read_full_data(self, step: ADFStep) -> SparkDataStructure:
+        self.layer_in: AWSBaseEMRLayer
+        return self.layer_in.read_full_data(step)
+
+    def write_batch_data(
+        self, ads: SparkDataStructure, step: ADFStep, batch_id: str
+    ) -> None:
+        self.layer_in: AWSBaseEMRLayer
+        self.layer_in.write_batch_data(ads, step, batch_id)
+        # TODO : fix athena connectivity inside VPC
+        # self.layer_out: AWSAthenaLayer
+        # self.layer_out.repair_partitions(step)
+
+
+class AthenaToAthenaTransition(ADLTransition):
+    def validate(self) -> None:
+        super().validate()
+        self.layer_in: AWSAthenaLayer
+        self.layer_out: AWSAthenaLayer
+        if self.layer_in.db_name != self.layer_out.db_name:
+            raise ValueError(f"Cannot create transition {self} across different DBs")
+
+    def default_to_write_out(self) -> bool:
+        return True
+
+    @staticmethod
+    def get_handled_layers_in() -> List[Type[AbstractDataLayer]]:
+        return [AWSAthenaLayer]
+
+    @staticmethod
+    def get_handled_layers_out() -> List[Type[AbstractDataLayer]]:
+        return [AWSAthenaLayer]
+
+    def setup_write_out(self, step_in: ADFStep, step_out: ADFStep) -> None:
+        pass
+
+    def setup_read_in(self, step_in: ADFStep, step_out: ADFStep) -> None:
+        pass
+
+    def delete_step_write_out(self, step: ADFStep):
+        self.layer_out.delete_step(step)
+
+    def delete_step_read_in(self, step: ADFStep):
+        self.layer_out.delete_step(step)
+
+    def delete_batch_write_out(self, step: ADFStep, batch_id: str):
+        self.layer_out.delete_batch(step, batch_id)
+
+    def delete_batch_read_in(self, step: ADFStep, batch_id: str):
+        self.layer_out.delete_batch(step, batch_id)
+
+    def read_batch_data(self, step: ADFStep, batch_id: str) -> AbstractDataStructure:
+        return self.layer_in.read_batch_data(step, batch_id)
+
+    def read_full_data(self, step: ADFStep) -> AbstractDataStructure:
+        return self.layer_in.read_full_data(step)
+
+    def write_batch_data(
+        self, ads: AbstractDataStructure, step: ADFStep, batch_id: str
+    ) -> None:
+        self.layer_out.write_batch_data(ads, step, batch_id)

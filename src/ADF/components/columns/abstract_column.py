@@ -116,13 +116,19 @@ class AbstractDataColumn(ABC):
     ) -> "AbstractDataColumn":
         raise NotImplementedError
 
-    def default_binary_operator_val_left(self, op: Callable, other) -> "AbstractDataColumn":
+    def default_binary_operator_val_left(
+        self, op: Callable, other
+    ) -> "AbstractDataColumn":
         raise NotImplementedError
 
-    def default_binary_operator_val_right(self, op: Callable, other) -> "AbstractDataColumn":
+    def default_binary_operator_val_right(
+        self, op: Callable, other
+    ) -> "AbstractDataColumn":
         raise NotImplementedError
 
-    def _handle_binary_operator(self, op: Callable, other: Union["AbstractDataColumn", Any], left: bool):
+    def _handle_binary_operator(
+        self, op: Callable, other: Union["AbstractDataColumn", Any], left: bool
+    ):
         if isinstance(other, AbstractDataColumn):
             if op is operator.add and left:
                 return self.add_col(other)
@@ -224,76 +230,76 @@ class AbstractDataColumn(ABC):
                 return self.ror_val(other)
             raise ValueError(f"Unknown binary operator {str(op)}.")
 
-    def add_col(self, other: 'AbstractDataColumn'):
+    def add_col(self, other: "AbstractDataColumn"):
         return self.default_binary_operator_col_left(operator.add, other)
 
-    def radd_col(self, other: 'AbstractDataColumn'):
+    def radd_col(self, other: "AbstractDataColumn"):
         return self.default_binary_operator_col_right(operator.add, other)
 
-    def sub_col(self, other: 'AbstractDataColumn'):
+    def sub_col(self, other: "AbstractDataColumn"):
         return self.default_binary_operator_col_left(operator.sub, other)
 
-    def rsub_col(self, other: 'AbstractDataColumn'):
+    def rsub_col(self, other: "AbstractDataColumn"):
         return self.default_binary_operator_col_right(operator.sub, other)
 
-    def mul_col(self, other: 'AbstractDataColumn'):
+    def mul_col(self, other: "AbstractDataColumn"):
         return self.default_binary_operator_col_left(operator.mul, other)
 
-    def rmul_col(self, other: 'AbstractDataColumn'):
+    def rmul_col(self, other: "AbstractDataColumn"):
         return self.default_binary_operator_col_right(operator.mul, other)
 
-    def floordiv_col(self, other: 'AbstractDataColumn'):
+    def floordiv_col(self, other: "AbstractDataColumn"):
         return self.default_binary_operator_col_left(operator.floordiv, other)
 
-    def rfloordiv_col(self, other: 'AbstractDataColumn'):
+    def rfloordiv_col(self, other: "AbstractDataColumn"):
         return self.default_binary_operator_col_right(operator.floordiv, other)
 
-    def truediv_col(self, other: 'AbstractDataColumn'):
+    def truediv_col(self, other: "AbstractDataColumn"):
         return self.default_binary_operator_col_left(operator.truediv, other)
 
-    def rtruediv_col(self, other: 'AbstractDataColumn'):
+    def rtruediv_col(self, other: "AbstractDataColumn"):
         return self.default_binary_operator_col_right(operator.truediv, other)
 
-    def mod_col(self, other: 'AbstractDataColumn'):
+    def mod_col(self, other: "AbstractDataColumn"):
         return self.default_binary_operator_col_left(operator.mod, other)
 
-    def rmod_col(self, other: 'AbstractDataColumn'):
+    def rmod_col(self, other: "AbstractDataColumn"):
         return self.default_binary_operator_col_right(operator.mod, other)
 
-    def pow_col(self, other: 'AbstractDataColumn'):
+    def pow_col(self, other: "AbstractDataColumn"):
         return self.default_binary_operator_col_left(operator.pow, other)
 
-    def rpow_col(self, other: 'AbstractDataColumn'):
+    def rpow_col(self, other: "AbstractDataColumn"):
         return self.default_binary_operator_col_right(operator.pow, other)
 
-    def eq_col(self, other: 'AbstractDataColumn'):
+    def eq_col(self, other: "AbstractDataColumn"):
         return self.default_binary_operator_col_left(operator.eq, other)
 
-    def ne_col(self, other: 'AbstractDataColumn'):
+    def ne_col(self, other: "AbstractDataColumn"):
         return self.default_binary_operator_col_left(operator.ne, other)
 
-    def lt_col(self, other: 'AbstractDataColumn'):
+    def lt_col(self, other: "AbstractDataColumn"):
         return self.default_binary_operator_col_left(operator.lt, other)
 
-    def le_col(self, other: 'AbstractDataColumn'):
+    def le_col(self, other: "AbstractDataColumn"):
         return self.default_binary_operator_col_left(operator.le, other)
 
-    def gt_col(self, other: 'AbstractDataColumn'):
+    def gt_col(self, other: "AbstractDataColumn"):
         return self.default_binary_operator_col_left(operator.gt, other)
 
-    def ge_col(self, other: 'AbstractDataColumn'):
+    def ge_col(self, other: "AbstractDataColumn"):
         return self.default_binary_operator_col_left(operator.ge, other)
 
-    def and_col(self, other: 'AbstractDataColumn'):
+    def and_col(self, other: "AbstractDataColumn"):
         return self.default_binary_operator_col_left(operator.and_, other)
 
-    def rand_col(self, other: 'AbstractDataColumn'):
+    def rand_col(self, other: "AbstractDataColumn"):
         return self.default_binary_operator_col_right(operator.and_, other)
 
-    def or_col(self, other: 'AbstractDataColumn'):
+    def or_col(self, other: "AbstractDataColumn"):
         return self.default_binary_operator_col_left(operator.or_, other)
 
-    def ror_col(self, other: 'AbstractDataColumn'):
+    def ror_col(self, other: "AbstractDataColumn"):
         return self.default_binary_operator_col_right(operator.or_, other)
 
     def add_val(self, other: Any):

@@ -1,17 +1,22 @@
-import os
 import logging
-
+import os
 from abc import ABC
 from io import BytesIO
-from typing import Optional, Dict, Union
 from pathlib import Path
-
+from typing import Optional, Dict, Union, Any
+from typing_extensions import Literal
 from zipfile import ZipFile, ZIP_DEFLATED
 
-from ADF.exceptions import AWSUnmanagedOperation
-from ADF.config import ADFGlobalConfig
-from ADF.components.implementers import ADFImplementer
 from ADF.components.flow_config import ADFStep, ADFCollection
+from ADF.components.implementers import ADFImplementer
+from ADF.components.layer_transitions import (
+    LambdaToEMRTransition,
+    EMRToEMRTransition,
+    EMRToRedshiftTransition,
+    EMRToAthenaTransition,
+    AthenaToAthenaTransition,
+    SameHostSQLToSQL,
+)
 from ADF.components.layers import (
     AWSLambdaLayer,
     ManagedAWSLambdaLayer,
@@ -19,17 +24,17 @@ from ADF.components.layers import (
     AWSEMRLayer,
     ManagedAWSEMRLayer,
     PrebuiltAWSEMRLayer,
+    AWSEMRServerlessLayer,
+    ManagedAWSEMRServerlessLayer,
+    PrebuiltAWSEMRServerlessLayer,
     AWSRedshiftLayer,
     ManagedAWSRedshiftLayer,
     PrebuiltAWSRedshiftLayer,
-)
-from ADF.components.layer_transitions import (
-    LambdaToEMRTransition,
-    EMRToEMRTransition,
-    EMRToRedshiftTransition,
-    SameHostSQLToSQL,
+    AWSAthenaLayer,
 )
 from ADF.components.state_handlers import SQLStateHandler
+from ADF.config import ADFGlobalConfig
+from ADF.exceptions import AWSUnmanagedOperation
 from ADF.utils import (
     ec2_client,
     s3_client,
@@ -37,23 +42,20 @@ from ADF.utils import (
     s3_delete_prefix,
     zip_files,
     run_command,
+    AWSResourceConnector,
     AWSIAMRoleConnector,
     AWSRDSConnector,
     AWSRDSConfig,
     AWSRedshiftConfig,
     AWSInstanceProfileConnector,
     AWSVPCConnector,
-    AWSVPCConfig,
     AWSRouteTableConnector,
-    AWSRouteTableConfig,
     AWSInternetGatewayConnector,
-    AWSInternetGatewayConfig,
+    AWSVPCEndpointConnector,
     AWSSecurityGroupConnector,
     AWSSubnetConnector,
     AWSSubnetGroupConnector,
-    AWSSubnetGroupConfig,
     AWSClusterSubnetGroupConnector,
-    AWSClusterSubnetGroupConfig,
 )
 
 
@@ -65,12 +67,30 @@ class AWSImplementer(ADFImplementer, ABC):
         bucket: str,
         s3_prefix: str,
         state_handler_url: Optional[str],
-        layers: Dict[str, Union[AWSLambdaLayer, AWSEMRLayer, AWSRedshiftLayer]],
+        layers: Dict[
+            str,
+            Union[AWSLambdaLayer, AWSEMRLayer, AWSRedshiftLayer, AWSEMRServerlessLayer],
+        ],
     ):
         if (not name.isalpha()) or (name.lower() != name):
             raise ValueError(
                 f"Implementer name must contain only lowercase letters, not '{name}'."
             )
+        self.init_config_vars(name, bucket, s3_prefix, log_folder)
+        super().__init__(
+            layers=layers,
+            state_handler=SQLStateHandler(state_handler_url),
+            transitions=[
+                LambdaToEMRTransition,
+                EMRToEMRTransition,
+                EMRToRedshiftTransition,
+                EMRToAthenaTransition,
+                AthenaToAthenaTransition,
+                SameHostSQLToSQL,
+            ],
+        )
+
+    def init_config_vars(self, name, bucket, s3_prefix, log_folder) -> None:
         self.name = name
         self.bucket = bucket
         self.s3_prefix = s3_prefix
@@ -81,17 +101,10 @@ class AWSImplementer(ADFImplementer, ABC):
         self.s3_lambda_zip_key = f"{self.s3_prefix}{self.local_lambda_zip_path}"
         self.local_emr_zip_path = "emr_package.zip"
         self.s3_emr_zip_key = f"{self.s3_prefix}{self.local_emr_zip_path}"
+        self.local_venv_package_path = "venv_package.tar.gz"
+        self.venv_package_key = f"{self.s3_prefix}{self.local_venv_package_path}"
+        self.s3_launcher_key = f"{self.s3_prefix}adf-launcher.py"
         self.log_folder = log_folder
-        super().__init__(
-            layers=layers,
-            state_handler=SQLStateHandler(state_handler_url),
-            transitions=[
-                LambdaToEMRTransition,
-                EMRToEMRTransition,
-                EMRToRedshiftTransition,
-                SameHostSQLToSQL,
-            ],
-        )
 
     def get_layer_s3_prefix(self, layer: str) -> str:
         return f"{self.s3_prefix}data_layers/{layer}/"
@@ -116,10 +129,12 @@ class AWSImplementer(ADFImplementer, ABC):
             raise ValueError(f"Unknown AWS config mode '{config['mode']}'.")
 
     def zip_emr(self):
-        logging.info("Downloading EMR package...")
+        logging.info(
+            f"Downloading EMR package from 's3://{ADFGlobalConfig.AWS_PACKAGE_BUCKET}/{ADFGlobalConfig.get_emr_package_zip_key()}'..."
+        )
         s3_client.download_file(
             Bucket=ADFGlobalConfig.AWS_PACKAGE_BUCKET,
-            Key=ADFGlobalConfig.AWS_EMR_PACKAGE_KEY,
+            Key=ADFGlobalConfig.get_emr_package_zip_key(),
             Filename=self.local_emr_zip_path,
         )
         for extra_package in self.extra_packages:
@@ -129,7 +144,7 @@ class AWSImplementer(ADFImplementer, ABC):
                 zip_hanlder=zip_handler,
                 path=extra_package,
                 prefix=f"extra_packages/{os.path.basename(os.path.normpath(extra_package))}/",
-                exclude=lambda x: x.endswith(".zip"),
+                exclude=lambda x: x.endswith(".zip") or x.endswith(".gz"),
             )
             zip_handler.close()
         logging.info("Uploading emr code...")
@@ -140,10 +155,12 @@ class AWSImplementer(ADFImplementer, ABC):
         )
 
     def zip_lambda(self):
-        logging.info("Downloading Lambda package...")
+        logging.info(
+            f"Downloading Lambda package from 's3://{ADFGlobalConfig.AWS_PACKAGE_BUCKET}/{ADFGlobalConfig.get_lambda_package_zip_key()}'..."
+        )
         s3_client.download_file(
             Bucket=ADFGlobalConfig.AWS_PACKAGE_BUCKET,
-            Key=ADFGlobalConfig.AWS_LAMBDA_PACKAGE_KEY,
+            Key=ADFGlobalConfig.get_lambda_package_zip_key(),
             Filename=self.local_lambda_zip_path,
         )
         for extra_package in self.extra_packages:
@@ -161,15 +178,69 @@ class AWSImplementer(ADFImplementer, ABC):
             Key=self.s3_lambda_zip_key,
         )
 
-    def update_code(self):
+    def venv_package(self) -> None:
+        run_command(f"venv-pack -f -o {self.local_venv_package_path}")
+        logging.info(
+            f"Uploading venv package to s3://{self.bucket}/{self.venv_package_key}"
+        )
+        s3_client.upload_file(
+            Filename=self.local_venv_package_path,
+            Bucket=self.bucket,
+            Key=self.venv_package_key,
+        )
+
+    def upload_launcher(self) -> None:
+        logging.info(
+            f"Uploading launcher to s3://{self.bucket}/{self.s3_launcher_key}..."
+        )
+        s3_client.upload_file(
+            Filename=self.get_exe_path(),
+            Bucket=self.bucket,
+            Key=self.s3_launcher_key,
+        )
+
+    def layer_counts(
+        self,
+    ) -> Dict[Literal["lambda", "emr", "emr_serverless", "redshift", "athena"], int]:
+        counts = {
+            layer: 0
+            for layer in [
+                "lambda",
+                "emr",
+                "emr_serverless",
+                "redshift",
+                "athena",
+            ]
+        }
+        for layer in self.layers.values():
+            if isinstance(layer, AWSLambdaLayer):
+                counts["lambda"] += 1
+                continue
+            if isinstance(layer, AWSEMRLayer):
+                counts["emr"] += 1
+                continue
+            if isinstance(layer, AWSEMRServerlessLayer):
+                counts["emr_serverless"] += 1
+                continue
+            if isinstance(layer, AWSRedshiftLayer):
+                counts["redshift"] += 1
+                continue
+            if isinstance(layer, AWSAthenaLayer):
+                counts["athena"] += 1
+                continue
+        return counts
+
+    def update_code(self) -> None:
         logging.info(f"EXTRA PACKAGES : {self.extra_packages}")
-        for extra_package in self.extra_packages:
-            logging.info(f"Reinstalling package '{extra_package}' locally...")
-            run_command("python3 setup.py install", cwd=extra_package)
-        self.zip_emr()
-        logging.info("Reinstalling EMR code...")
+        self.install_extra_packages()
+        layer_counts = self.layer_counts()
+        if layer_counts["emr_serverless"]:
+            self.venv_package()
+        if layer_counts["emr"]:
+            self.zip_emr()
         for layer in self.layers.values():
             if isinstance(layer, AWSEMRLayer):
+                logging.info(f"Reinstalling EMR code for layer '{layer}'...")
                 emr_config = layer.emr_config
                 cmds = [
                     "sudo rm -rf /home/hadoop/adf/* /home/hadoop/adf/.[!.]*",
@@ -187,10 +258,11 @@ class AWSImplementer(ADFImplementer, ABC):
                     run_command(
                         f"ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i {layer.emr_config.get_key_pair_name()} hadoop@{emr_config.public_dns} '{cmd}'"
                     )
-        self.zip_lambda()
-        logging.info("Reinstalling Lambda code...")
+        if layer_counts["lambda"]:
+            self.zip_lambda()
         for layer in self.layers.values():
             if isinstance(layer, AWSLambdaLayer):
+                logging.info(f"Reinstalling Lambda code for layer '{layer}'...")
                 lambda_config = layer.lambda_config
                 lambda_client.get_waiter("function_updated").wait(
                     FunctionName=lambda_config.name
@@ -230,6 +302,13 @@ class AWSImplementer(ADFImplementer, ABC):
 
 
 class ManagedAWSImplementer(AWSImplementer):
+    @staticmethod
+    def optional_fetch_parameter(
+        connector: AWSResourceConnector, attr: str, default: Optional[Any] = None
+    ) -> Any:
+        config = connector.fetch_config()
+        return getattr(config, attr) if config else default
+
     def __init__(
         self,
         name: str,
@@ -237,132 +316,341 @@ class ManagedAWSImplementer(AWSImplementer):
         bucket: str,
         s3_prefix: str,
         state_handler: Dict[str, str],
-        lambda_layers: Dict[str, Dict[str, str]],
-        emr_layers: Dict[str, Dict[str, str]],
-        redshift_layers: Dict[str, Dict[str, str]],
+        lambda_layers: Dict[str, Dict[str, str]] = None,
+        emr_layers: Dict[str, Dict[str, str]] = None,
+        emr_serverless_layers: Dict[str, Dict[str, str]] = None,
+        redshift_layers: Dict[str, Dict[str, str]] = None,
+        athena_layers: Dict[str, Dict[str, str]] = None,
     ):
         if (not name.isalpha()) or (name.lower() != name):
             raise ValueError(
                 f"Implementer name must contain only lowercase letters, not '{name}'."
             )
-        self.name = name
-        self.bucket = bucket
-        self.s3_prefix = s3_prefix
-        self.s3_icp = f"{s3_prefix}icp.yaml"
-        self.s3_fcp_template = f"{s3_prefix}fcp.{{collection_name}}.yaml"
-        self.s3_bootstrap_emr = f"{s3_prefix}bootstrap_emr.sh"
-        self.local_lambda_zip_path = "lambda_package.zip"
-        self.s3_lambda_zip_key = f"{self.s3_prefix}{self.local_lambda_zip_path}"
-        self.local_emr_zip_path = "emr_package.zip"
-        self.s3_emr_zip_key = f"{self.s3_prefix}{self.local_emr_zip_path}"
-        self.log_folder = log_folder
+        self.lambda_layers_config = lambda_layers or {}
+        self.emr_layers_config = emr_layers or {}
+        self.emr_serverless_layers_config = emr_serverless_layers or {}
+        self.redshift_layers_config = redshift_layers or {}
+        self.athena_layers_config = athena_layers or {}
+        self.state_handler_config = state_handler or {}
+        self.init_config_vars(name, bucket, s3_prefix, log_folder)
+        self.setup_connectors(False)
+        state_handler_rds_config = self.state_handler_rds_connector.fetch_config()
+        layers = self.construct_layers()
+        super().__init__(
+            name=name,
+            log_folder=log_folder,
+            bucket=bucket,
+            s3_prefix=s3_prefix,
+            layers=layers,
+            state_handler_url=None
+            if state_handler_rds_config is None
+            else state_handler_rds_config.get_connection_string(),
+        )
+
+    def construct_layers(self):
+        return {
+            **{
+                layer: ManagedAWSLambdaLayer(
+                    as_layer=layer,
+                    bucket=self.bucket,
+                    s3_prefix=self.get_layer_s3_prefix(layer),
+                    queue_name=f"{self.name.lower()}-{layer.lower()}-sqs",
+                    func_name=f"{self.name.lower()}-{layer.lower()}-lambda",
+                    role_arn=self.optional_fetch_parameter(
+                        self.iam_role_connectors[layer], "arn", ""
+                    ),
+                    code_config={
+                        "S3Bucket": self.bucket,
+                        "S3Key": self.s3_lambda_zip_key,
+                    },
+                    handler="aws_lambda_handlers.aws_lambda_apply_step_from_sqs",
+                    s3_icp=self.s3_icp,
+                    s3_fcp_template=self.s3_fcp_template,
+                    environ={"RDS_PW": AWSRDSConfig.get_master_password()},
+                    # security_group_id=self.optional_fetch_parameter(
+                    #     self.layer_sg_connectors["lambda"][layer], "group_id", ""
+                    # ),
+                    **layer_config,
+                )
+                for layer, layer_config in self.lambda_layers_config.items()
+            },
+            **{
+                layer: ManagedAWSEMRLayer(
+                    as_layer=layer,
+                    bucket=self.bucket,
+                    s3_prefix=self.get_layer_s3_prefix(layer),
+                    name=f"{self.name.lower()}-{layer.lower()}-emr",
+                    log_uri=f"s3://{self.bucket}/{self.get_layer_s3_prefix(layer)}logs",
+                    installer_uri=f"s3://{self.bucket}/{self.s3_bootstrap_emr}",
+                    role_name=self.optional_fetch_parameter(
+                        self.instance_profile_connectors[layer], "name", ""
+                    ),
+                    environ={
+                        "RDS_PW": AWSRDSConfig.get_master_password(),
+                        "REDSHIFT_PW": AWSRedshiftConfig.get_master_password(),
+                    },
+                    master_sg_id=self.optional_fetch_parameter(
+                        self.layer_sg_connectors["emr"][f"{layer}_master"],
+                        "group_id",
+                        "",
+                    ),
+                    slave_sg_id=self.optional_fetch_parameter(
+                        self.layer_sg_connectors["emr"][f"{layer}_slave"],
+                        "group_id",
+                        "",
+                    ),
+                    subnet_id=self.optional_fetch_parameter(
+                        self.subnet_connectors[0], "subnet_id", ""
+                    ),
+                    **layer_config,
+                )
+                for layer, layer_config in self.emr_layers_config.items()
+            },
+            **{
+                layer: ManagedAWSEMRServerlessLayer(
+                    as_layer=layer,
+                    bucket=self.bucket,
+                    s3_prefix=self.get_layer_s3_prefix(layer),
+                    name=f"{self.name.lower()}-{layer.lower()}-emr-serverless",
+                    role_arn=self.optional_fetch_parameter(
+                        self.iam_role_connectors[layer], "arn", ""
+                    ),
+                    environ={
+                        "RDS_PW": AWSRDSConfig.get_master_password(),
+                        "REDSHIFT_PW": AWSRedshiftConfig.get_master_password(),
+                        "AWS_DEFAULT_REGION": ADFGlobalConfig.AWS_REGION,
+                    },
+                    sg_id=self.optional_fetch_parameter(
+                        self.layer_sg_connectors["emr_serverless"][layer],
+                        "group_id",
+                        "",
+                    ),
+                    subnet_id=self.optional_fetch_parameter(
+                        self.private_subnet_connectors[0], "subnet_id"
+                    ),
+                    s3_icp=f"s3://{self.bucket}/{self.s3_icp}",
+                    s3_fcp_template=f"s3://{self.bucket}/{self.s3_fcp_template}",
+                    venv_package_key=self.venv_package_key,
+                    s3_launcher_key=self.s3_launcher_key,
+                    **layer_config,
+                )
+                for layer, layer_config in self.emr_serverless_layers_config.items()
+            },
+            **{
+                layer: ManagedAWSRedshiftLayer(
+                    as_layer=layer,
+                    identifer=layer_config.get(
+                        "identifier", f"{self.name.lower()}-redshift"
+                    ),
+                    role_arn=self.optional_fetch_parameter(
+                        self.iam_role_connectors[layer], "arn", ""
+                    ),
+                    table_prefix=f"{layer}_",
+                    sg_id=self.optional_fetch_parameter(
+                        self.layer_sg_connectors["redshift"][layer], "group_id", ""
+                    ),
+                    cluster_subnet_group_name=self.optional_fetch_parameter(
+                        self.cluster_subnet_group_connector, "name"
+                    ),
+                    **{
+                        key: val
+                        for key, val in layer_config.items()
+                        if key != "identifier"
+                    },
+                )
+                for layer, layer_config in self.redshift_layers_config.items()
+            },
+            **{
+                layer: AWSAthenaLayer(
+                    as_layer=layer,
+                    db_name=f"{self.name}",
+                    table_prefix=f"{layer}_",
+                    bucket=self.bucket,
+                    s3_prefix=self.get_layer_s3_prefix(layer),
+                    **layer_config,
+                )
+                for layer, layer_config in self.athena_layers_config.items()
+            },
+        }
+
+    def setup_connectors(self, create: bool) -> None:
         self.vpc_connector = AWSVPCConnector(
-            name=f"{name}_vpc", cidr_block="10.0.0.0/16"
+            name=f"{self.name}_vpc", cidr_block="10.0.0.0/16"
         )
-        vpc_config: AWSVPCConfig = self.vpc_connector.update_or_create()
+        if create:
+            self.vpc_connector.update_or_create()
+        vpc_id = self.optional_fetch_parameter(
+            self.vpc_connector, "vpc_id", "vpc-adf-dummy-id"
+        )
         self.internet_gateway_connector = AWSInternetGatewayConnector(
-            name=f"{self.name}_ig", vpc_id=vpc_config.vpc_id
-        )
-        internet_gateway_config: AWSInternetGatewayConfig = (
-            self.internet_gateway_connector.update_or_create()
+            name=f"{self.name}_ig", vpc_id=vpc_id
         )
         self.route_table_connector = AWSRouteTableConnector(
             name=f"{self.name}_rt",
-            vpc_id=vpc_config.vpc_id,
+            vpc_id=vpc_id,
         )
-        route_table_config: AWSRouteTableConfig = (
+        if create:
             self.route_table_connector.update_or_create()
+        self.private_route_table_connector = AWSRouteTableConnector(
+            name=f"{self.name}_private_rt",
+            vpc_id=vpc_id,
         )
+        if create:
+            self.private_route_table_connector.update_or_create()
         all_layers = (
-            list(lambda_layers.keys())
-            + list(emr_layers.keys())
-            + list(redshift_layers.keys())
+            list(self.lambda_layers_config.keys())
+            + list(self.emr_layers_config.keys())
+            + list(self.emr_serverless_layers_config.keys())
+            + list(self.redshift_layers_config.keys())
         )
         self.iam_role_connectors: Dict[str, AWSIAMRoleConnector] = {
             layer: AWSIAMRoleConnector(role_name=f"{self.name}_{layer}_role")
             for layer in all_layers
         }
-        for layer in all_layers:
-            self.iam_role_connectors[layer].update_or_create()
+        if create:
+            for layer in all_layers:
+                self.iam_role_connectors[layer].update_or_create()
         self.instance_profile_connectors: Dict[str, AWSInstanceProfileConnector] = {
             layer: AWSInstanceProfileConnector(
-                name=self.iam_role_connectors[layer].update_or_create().role_name,
-                role_name=self.iam_role_connectors[layer].update_or_create().role_name,
+                name=self.optional_fetch_parameter(
+                    self.iam_role_connectors[layer], "role_name", ""
+                ),
+                role_name=self.optional_fetch_parameter(
+                    self.iam_role_connectors[layer], "role_name", ""
+                ),
             )
-            for layer in emr_layers
+            for layer in self.emr_layers_config
         }
-        for layer in emr_layers:
-            self.instance_profile_connectors[layer].update_or_create()
+        if create:
+            for layer in self.emr_layers_config:
+                self.instance_profile_connectors[layer].update_or_create()
         self.subnet_connectors = [
             AWSSubnetConnector(
                 name=f"{self.name}_{zone['ZoneName']}_zone_subnet",
-                vpc_id=vpc_config.vpc_id,
+                vpc_id=vpc_id,
                 cidr_block=f"10.0.{n * 16}.0/20",
                 availability_zone=zone["ZoneName"],
-                route_table_id=route_table_config.route_table_id,
+                route_table_id=self.optional_fetch_parameter(
+                    self.route_table_connector, "route_table_id", ""
+                ),
             )
             for n, zone in enumerate(
                 ec2_client.describe_availability_zones()["AvailabilityZones"]
             )
         ]
-        logging.info(
-            f"Creating route to internet gateway {internet_gateway_config.name}...",
-        )
-        try:
-            ec2_client.create_route(
-                RouteTableId=route_table_config.route_table_id,
-                GatewayId=internet_gateway_config.internet_gateway_id,
-                DestinationCidrBlock="0.0.0.0/0",
+        if create:
+            for subnet_connector in self.subnet_connectors:
+                subnet_connector.update_or_create()
+        self.private_subnet_connectors = [
+            AWSSubnetConnector(
+                name=f"{self.name}_{zone['ZoneName']}_private_zone_subnet",
+                vpc_id=vpc_id,
+                cidr_block=f"10.0.{(n + len(self.subnet_connectors)) * 16}.0/20",
+                availability_zone=zone["ZoneName"],
+                route_table_id=self.optional_fetch_parameter(
+                    self.private_route_table_connector, "route_table_id", ""
+                ),
             )
-            logging.info(f"Route created for {internet_gateway_config.name} !")
-        except ec2_client.exceptions.ClientError as e:
-            if "RouteAlreadyExists" in str(e):
-                logging.info(
-                    f"Skipping route creation for {internet_gateway_config.name}...",
+            for n, zone in enumerate(
+                ec2_client.describe_availability_zones()["AvailabilityZones"]
+            )
+        ]
+        if create:
+            for private_subnet_connector in self.private_subnet_connectors:
+                private_subnet_connector.update_or_create()
+        if create:
+            internet_gateway_config = self.internet_gateway_connector.update_or_create()
+            logging.info(
+                f"Creating route to internet gateway {internet_gateway_config.name}...",
+            )
+            try:
+                ec2_client.create_route(
+                    RouteTableId=self.optional_fetch_parameter(
+                        self.route_table_connector, "route_table_id", ""
+                    ),
+                    GatewayId=internet_gateway_config.internet_gateway_id,
+                    DestinationCidrBlock="0.0.0.0/0",
                 )
-            else:
-                raise e
+                logging.info(f"Route created for {internet_gateway_config.name} !")
+            except ec2_client.exceptions.ClientError as e:
+                if "RouteAlreadyExists" in str(e):
+                    logging.info(
+                        f"Skipping route creation for {internet_gateway_config.name}...",
+                    )
+                else:
+                    raise e
         subnet_ids = [
-            subnet_connector.update_or_create().subnet_id
+            self.optional_fetch_parameter(subnet_connector, "subnet_id", "")
             for subnet_connector in self.subnet_connectors
         ]
+        private_subnet_ids = [
+            self.optional_fetch_parameter(private_subnet_connector, "subnet_id", "")
+            for private_subnet_connector in self.private_subnet_connectors
+        ]
+        self.vpc_endpoint_connector_s3 = AWSVPCEndpointConnector(
+            name=f"{self.name}-private-s3-connector",
+            vpc_id=vpc_id,
+            service_name=f"com.amazonaws.{ADFGlobalConfig.AWS_REGION}.s3",
+            endpoint_type="Gateway",
+            route_table_ids=[
+                self.optional_fetch_parameter(
+                    self.private_route_table_connector, "route_table_id", ""
+                )
+            ],
+            subnet_ids=[],
+            private_dns_enabled=False,
+        )
+        if create:
+            self.vpc_endpoint_connector_s3.update_or_create()
+        self.vpc_endpoint_connector_athena = AWSVPCEndpointConnector(
+            name=f"{self.name}-private-athena-connector",
+            vpc_id=vpc_id,
+            service_name=f"com.amazonaws.{ADFGlobalConfig.AWS_REGION}.athena",
+            endpoint_type="Interface",
+            route_table_ids=[],
+            subnet_ids=private_subnet_ids,
+            private_dns_enabled=True,
+        )
+        if create:
+            self.vpc_endpoint_connector_athena.update_or_create()
         self.subnet_group_connector = AWSSubnetGroupConnector(
             name=f"{self.name}_subnet_group",
             description=f"{self.name} subnet group",
             subnet_ids=subnet_ids,
         )
-        subnet_group_config: AWSSubnetGroupConfig = (
+        if create:
             self.subnet_group_connector.update_or_create()
-        )
         self.cluster_subnet_group_connector = AWSClusterSubnetGroupConnector(
             name=f"{self.name}-cluster-subnet-group",
             description=f"{self.name} cluster subnet group",
             subnet_ids=subnet_ids,
         )
-        cluster_subnet_group_config: AWSClusterSubnetGroupConfig = (
+        if create:
             self.cluster_subnet_group_connector.update_or_create()
-        )
         self.state_handler_sg_connector = AWSSecurityGroupConnector(
-            vpc_id=vpc_config.vpc_id,
+            vpc_id=vpc_id,
             group_name=f"{self.name}_state_handler_sg",
             description=f"{self.name} state handler security group",
         )
+        if create:
+            self.state_handler_sg_connector.update_or_create()
         self.layer_sg_connectors: Dict[str, Dict[str, AWSSecurityGroupConnector]] = {
             "lambda": {},
             "emr": {},
+            "emr_serverless": {},
             "redshift": {},
         }
-        for layer in lambda_layers:
+        for layer in self.lambda_layers_config:
             self.layer_sg_connectors["lambda"][layer] = AWSSecurityGroupConnector(
-                vpc_id=vpc_config.vpc_id,
+                vpc_id=vpc_id,
                 group_name=f"{self.name}_{layer}_lambda_sg",
                 description=f"{self.name} {layer} lambda security group",
             )
-        for layer in emr_layers:
+        for layer in self.emr_layers_config:
             self.layer_sg_connectors["emr"][
                 f"{layer}_master"
             ] = AWSSecurityGroupConnector(
-                vpc_id=vpc_config.vpc_id,
+                vpc_id=vpc_id,
                 group_name=f"{self.name}_{layer}_emr_master_sg",
                 description=f"{self.name} {layer} EMR master security group",
                 init_ingress_rule="all_ssh",
@@ -370,111 +658,45 @@ class ManagedAWSImplementer(AWSImplementer):
             self.layer_sg_connectors["emr"][
                 f"{layer}_slave"
             ] = AWSSecurityGroupConnector(
-                vpc_id=vpc_config.vpc_id,
+                vpc_id=vpc_id,
                 group_name=f"{self.name}_{layer}_emr_slave_sg",
                 description=f"{self.name} {layer} EMR slave security group",
                 init_ingress_rule="all_ssh",
             )
-        for layer in redshift_layers:
+        for layer in self.emr_serverless_layers_config:
+            self.layer_sg_connectors["emr_serverless"][
+                layer
+            ] = AWSSecurityGroupConnector(
+                vpc_id=vpc_id,
+                group_name=f"{self.name}_{layer}_emr_serverless_sg",
+                description=f"{self.name} {layer} EMR Serverless security group",
+            )
+        for layer in self.redshift_layers_config:
             self.layer_sg_connectors["redshift"][layer] = AWSSecurityGroupConnector(
-                vpc_id=vpc_config.vpc_id,
+                vpc_id=vpc_id,
                 group_name=f"{self.name}_{layer}_redshift_sg",
                 description=f"{self.name} {layer} redshift security group",
             )
+        if create:
+            for layer_type in self.layer_sg_connectors:
+                for layer in self.layer_sg_connectors[layer_type]:
+                    self.layer_sg_connectors[layer_type][layer].update_or_create()
         self.state_handler_rds_connector = AWSRDSConnector(
             identifier=f"{self.name}-state-handler",
-            sg_id=self.state_handler_sg_connector.update_or_create().group_id,
-            subnet_group_name=subnet_group_config.name,
-            **state_handler,
-        )
-        state_handler_rds_config: AWSRDSConfig = (
-            self.state_handler_rds_connector.fetch_config()
-        )
-        super().__init__(
-            name=name,
-            log_folder=log_folder,
-            bucket=bucket,
-            s3_prefix=s3_prefix,
-            layers={
-                **{
-                    layer: ManagedAWSLambdaLayer(
-                        as_layer=layer,
-                        bucket=self.bucket,
-                        s3_prefix=self.get_layer_s3_prefix(layer),
-                        queue_name=f"{self.name.lower()}-{layer.lower()}-sqs",
-                        func_name=f"{self.name.lower()}-{layer.lower()}-lambda",
-                        role_arn=self.iam_role_connectors[layer].update_or_create().arn,
-                        code_config={
-                            "S3Bucket": self.bucket,
-                            "S3Key": self.s3_lambda_zip_key,
-                        },
-                        handler="aws_lambda_handlers.aws_lambda_apply_step_from_sqs",
-                        s3_icp=self.s3_icp,
-                        s3_fcp_template=self.s3_fcp_template,
-                        environ={"RDS_PW": AWSRDSConfig.get_master_password()},
-                        # security_group_id=self.layer_sg_connectors["lambda"][layer]
-                        # .update_or_create()
-                        # .group_id,
-                        # subnet_ids=subnet_ids,
-                        **layer_config,
-                    )
-                    for layer, layer_config in lambda_layers.items()
-                },
-                **{
-                    layer: ManagedAWSEMRLayer(
-                        as_layer=layer,
-                        bucket=self.bucket,
-                        s3_prefix=self.get_layer_s3_prefix(layer),
-                        name=f"{self.name.lower()}-{layer.lower()}-emr",
-                        log_uri=f"s3://{self.bucket}/{self.get_layer_s3_prefix(layer)}logs",
-                        installer_uri=f"s3://{self.bucket}/{self.s3_bootstrap_emr}",
-                        role_name=self.instance_profile_connectors[layer]
-                        .update_or_create()
-                        .name,
-                        environ={
-                            "RDS_PW": AWSRDSConfig.get_master_password(),
-                            "REDSHIFT_PW": AWSRedshiftConfig.get_master_password(),
-                        },
-                        master_sg_id=self.layer_sg_connectors["emr"][f"{layer}_master"]
-                        .update_or_create()
-                        .group_id,
-                        slave_sg_id=self.layer_sg_connectors["emr"][f"{layer}_slave"]
-                        .update_or_create()
-                        .group_id,
-                        subnet_id=self.subnet_connectors[0]
-                        .update_or_create()
-                        .subnet_id,
-                        **layer_config,
-                    )
-                    for layer, layer_config in emr_layers.items()
-                },
-                **{
-                    layer: ManagedAWSRedshiftLayer(
-                        as_layer=layer,
-                        identifer=layer_config.get(
-                            "identifier", f"{self.name.lower()}-redshift"
-                        ),
-                        role_arn=self.iam_role_connectors[layer].update_or_create().arn,
-                        table_prefix=f"{layer}_",
-                        sg_id=self.layer_sg_connectors["redshift"][layer]
-                        .update_or_create()
-                        .group_id,
-                        cluster_subnet_group_name=cluster_subnet_group_config.name,
-                        **{
-                            key: val
-                            for key, val in layer_config.items()
-                            if key != "identifier"
-                        },
-                    )
-                    for layer, layer_config in redshift_layers.items()
-                },
-            },
-            state_handler_url=None
-            if state_handler_rds_config is None
-            else state_handler_rds_config.get_connection_string(),
+            sg_id=self.optional_fetch_parameter(
+                self.state_handler_sg_connector, "group_id", ""
+            ),
+            subnet_group_name=self.optional_fetch_parameter(
+                self.subnet_group_connector, "name"
+            ),
+            **self.state_handler_config,
         )
 
     def setup_implementer(self, icp: str):
+        # Setup core resources and update layers accordingly
+        self.setup_connectors(True)
+        self.layers = self.construct_layers()
+
         # Create bucket
         if self.bucket not in [
             bucket["Name"] for bucket in s3_client.list_buckets()["Buckets"]
@@ -492,15 +714,23 @@ class ManagedAWSImplementer(AWSImplementer):
         # Create log folder
         Path(self.log_folder).mkdir(parents=True, exist_ok=True)
 
-        # Upload implementer config
-        logging.info("Uploading implementer config...")
-        s3_client.upload_file(Filename=icp, Bucket=self.bucket, Key=self.s3_icp)
-
         # Setup state handler
         logging.info("Setting up RDS DB for state handler...")
         self.state_handler = SQLStateHandler(
             self.state_handler_rds_connector.update_or_create().get_connection_string()
         )
+
+        # iInstall extra packages
+        self.install_extra_packages()
+
+        # Zip and upload code for lambda
+        self.zip_lambda()
+
+        # Create and upload venv package
+        self.venv_package()
+
+        # Upload launcher to accessible bucker
+        self.upload_launcher()
 
         # Zip and upload code for EMR
         self.zip_emr()
@@ -548,9 +778,6 @@ class ManagedAWSImplementer(AWSImplementer):
             Body=bootstrap_script,
         )
 
-        # Zip and upload code for lambda
-        self.zip_lambda()
-
     def output_prebuilt_config(self, icp: str) -> Dict:
         return {
             self._class_key: "ADF.components.implementers.AWSImplementer",
@@ -573,10 +800,20 @@ class ManagedAWSImplementer(AWSImplementer):
                 for layer_name, layer in self.layers.items()
                 if isinstance(layer, ManagedAWSEMRLayer)
             },
+            "emr_serverless_layers": {
+                layer_name: layer.output_prebuilt_config()
+                for layer_name, layer in self.layers.items()
+                if isinstance(layer, ManagedAWSEMRServerlessLayer)
+            },
             "redshift_layers": {
                 layer_name: layer.output_prebuilt_config()
                 for layer_name, layer in self.layers.items()
                 if isinstance(layer, ManagedAWSRedshiftLayer)
+            },
+            "athena_layers": {
+                layer_name: layer.output_prebuilt_config()
+                for layer_name, layer in self.layers.items()
+                if isinstance(layer, AWSAthenaLayer)
             },
         }
 
@@ -589,6 +826,10 @@ class ManagedAWSImplementer(AWSImplementer):
             run_command(f"rm {self.local_emr_zip_path}")
         except RuntimeError:
             logging.info(f"Skipped deletion of {self.local_emr_zip_path}")
+        try:
+            run_command(f"rm {self.local_venv_package_path}")
+        except RuntimeError:
+            logging.info(f"Skipped deletion of {self.local_venv_package_path}")
         s3_delete_prefix(self.bucket, self.s3_prefix)
         for profile in self.instance_profile_connectors.values():
             profile.destroy_if_exists()
@@ -622,6 +863,11 @@ class ManagedAWSImplementer(AWSImplementer):
                 VpcId=vpc_config.vpc_id,
             )
         self.internet_gateway_connector.destroy_if_exists()
+        self.vpc_endpoint_connector_s3.destroy_if_exists()
+        self.vpc_endpoint_connector_athena.destroy_if_exists()
+        for subnet in self.private_subnet_connectors:
+            subnet.destroy_if_exists()
+        self.private_route_table_connector.destroy_if_exists()
         self.vpc_connector.destroy_if_exists()
 
 
@@ -635,7 +881,9 @@ class PrebuiltAWSImplementer(AWSImplementer):
         state_handler_url: str,
         lambda_layers: Dict[str, Dict[str, str]],
         emr_layers: Dict[str, Dict[str, str]],
+        emr_serverless_layers: Dict[str, Dict[str, str]],
         redshift_layers: Dict[str, Dict[str, str]],
+        athena_layers: Dict[str, Dict[str, str]],
     ):
         self.s3_prefix = s3_prefix
         super().__init__(
@@ -646,26 +894,24 @@ class PrebuiltAWSImplementer(AWSImplementer):
             state_handler_url=state_handler_url,
             layers={
                 **{
-                    layer: PrebuiltAWSLambdaLayer(
-                        as_layer=layer,
-                        bucket=bucket,
-                        s3_prefix=self.get_layer_s3_prefix(layer),
-                        **layer_config,
-                    )
+                    layer: PrebuiltAWSLambdaLayer(as_layer=layer, **layer_config)
                     for layer, layer_config in lambda_layers.items()
                 },
                 **{
-                    layer: PrebuiltAWSEMRLayer(
-                        as_layer=layer,
-                        bucket=bucket,
-                        s3_prefix=self.get_layer_s3_prefix(layer),
-                        **layer_config,
-                    )
+                    layer: PrebuiltAWSEMRLayer(as_layer=layer, **layer_config)
                     for layer, layer_config in emr_layers.items()
+                },
+                **{
+                    layer: PrebuiltAWSEMRServerlessLayer(as_layer=layer, **layer_config)
+                    for layer, layer_config in emr_serverless_layers.items()
                 },
                 **{
                     layer: PrebuiltAWSRedshiftLayer(as_layer=layer, **layer_config)
                     for layer, layer_config in redshift_layers.items()
+                },
+                **{
+                    layer: AWSAthenaLayer(as_layer=layer, **layer_config)
+                    for layer, layer_config in athena_layers.items()
                 },
             },
         )

@@ -15,14 +15,17 @@ from ADF.components.layers import AbstractDataLayer
 from ADF.utils import (
     AWSEMRConnector,
     AWSEMRConfig,
+    AWSEMRServerlessConnector,
+    AWSEMRServerlessConfig,
     emr_client,
+    emr_serverless_client,
     s3_delete_prefix,
     s3_list_objects,
 )
 from ADF.config import ADFGlobalConfig
 
 
-class AWSEMRLayer(AbstractDataLayer, ABC):
+class AWSBaseEMRLayer(AbstractDataLayer, ABC):
     def __init__(
         self,
         as_layer: str,
@@ -39,11 +42,6 @@ class AWSEMRLayer(AbstractDataLayer, ABC):
         self._spark = None
 
     @property
-    @abstractmethod
-    def emr_config(self) -> AWSEMRConfig:
-        pass
-
-    @property
     def spark(self) -> SparkSession:
         if self._spark is None:
             self._spark = SparkSession.builder.appName(
@@ -51,10 +49,6 @@ class AWSEMRLayer(AbstractDataLayer, ABC):
             ).getOrCreate()
             self._spark.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
         return self._spark
-
-    @abstractmethod
-    def setup_layer(self) -> None:
-        pass
 
     def setup_steps(self, steps: List[ADFStep]) -> None:
         pass
@@ -176,6 +170,49 @@ class AWSEMRLayer(AbstractDataLayer, ABC):
                 .to_list_of_dicts()
             ]
 
+    def delete_step(self, step: ADFStep) -> None:
+        s3_delete_prefix(
+            self.bucket, self.get_step_prefix(step), ignore_nosuchbucket=True
+        )
+
+    def delete_batch(self, step: ADFStep, batch_id: str) -> None:
+        s3_delete_prefix(
+            self.bucket,
+            f"{self.get_step_prefix(step)}{ADFGlobalConfig.BATCH_ID_COLUMN_NAME}={batch_id}/",
+            ignore_nosuchbucket=True,
+        )
+
+
+class AWSEMRLayer(AWSBaseEMRLayer, ABC):
+    def __init__(
+        self,
+        as_layer: str,
+        bucket: str,
+        s3_prefix: str,
+        format: str = "csv",
+        landing_format: Optional[str] = None,
+    ):
+        super().__init__(
+            as_layer=as_layer,
+            bucket=bucket,
+            s3_prefix=s3_prefix,
+            format=format,
+            landing_format=landing_format or format,
+        )
+
+    @property
+    @abstractmethod
+    def emr_config(self) -> AWSEMRConfig:
+        pass
+
+    @abstractmethod
+    def setup_layer(self) -> None:
+        pass
+
+    @abstractmethod
+    def destroy(self) -> None:
+        pass
+
     def submit_step(
         self,
         step_in: ADFStep,
@@ -188,7 +225,7 @@ class AWSEMRLayer(AbstractDataLayer, ABC):
     ) -> Optional[subprocess.Popen]:
         if self.emr_config is None:
             raise ValueError(
-                f"EMR config is null, are you sure the {self.emr_config.name} cluster is ready ?"
+                f"EMR config is null, are you sure the {str(self)} cluster is ready ?"
             )
         args = [
             "/usr/bin/spark-submit",
@@ -267,22 +304,6 @@ class AWSEMRLayer(AbstractDataLayer, ABC):
         )
         return None
 
-    def delete_step(self, step: ADFStep) -> None:
-        s3_delete_prefix(
-            self.bucket, self.get_step_prefix(step), ignore_nosuchbucket=True
-        )
-
-    def delete_batch(self, step: ADFStep, batch_id: str) -> None:
-        s3_delete_prefix(
-            self.bucket,
-            f"{self.get_step_prefix(step)}{ADFGlobalConfig.BATCH_ID_COLUMN_NAME}={batch_id}/",
-            ignore_nosuchbucket=True,
-        )
-
-    @abstractmethod
-    def destroy(self) -> None:
-        pass
-
 
 class ManagedAWSEMRLayer(AWSEMRLayer):
     def __init__(
@@ -328,7 +349,7 @@ class ManagedAWSEMRLayer(AWSEMRLayer):
         )
 
     @property
-    def emr_config(self) -> AWSEMRConfig:
+    def emr_config(self) -> Optional[AWSEMRConfig]:
         return self.emr_connector.fetch_config()
 
     def setup_layer(self) -> None:
@@ -385,6 +406,306 @@ class PrebuiltAWSEMRLayer(AWSEMRLayer):
     @property
     def emr_config(self) -> AWSEMRConfig:
         return self._emr_config
+
+    def setup_layer(self) -> None:
+        raise AWSUnmanagedOperation(self, "setup_layer")
+
+    def destroy(self) -> None:
+        raise AWSUnmanagedOperation(self, "destroy")
+
+
+class AWSEMRServerlessLayer(AWSBaseEMRLayer, ABC):
+    def __init__(
+        self,
+        as_layer: str,
+        bucket: str,
+        s3_prefix: str,
+        role_arn: str,
+        s3_launcher_key: str,
+        venv_package_key: str,
+        s3_icp: str,
+        s3_fcp_template: str,
+        format: str = "csv",
+        landing_format: Optional[str] = None,
+        environ: Optional[Dict] = None,
+    ):
+        super().__init__(
+            as_layer=as_layer,
+            bucket=bucket,
+            s3_prefix=s3_prefix,
+            format=format,
+            landing_format=landing_format or format,
+        )
+        self.environ = environ or {}
+        self.role_arn = role_arn
+        self.s3_launcher_key = s3_launcher_key
+        self.venv_package_key = venv_package_key
+        self.s3_icp = s3_icp
+        self.s3_fcp_template = s3_fcp_template
+
+    @property
+    @abstractmethod
+    def emr_serverless_config(self) -> Optional[AWSEMRServerlessConfig]:
+        pass
+
+    @property
+    def environ_conf_str(self) -> str:
+        return " ".join(
+            [
+                f"--conf spark.emr-serverless.driverEnv.{key}={val}"
+                for key, val in self.environ.items()
+            ]
+        )
+
+    @property
+    def conf_str(self) -> str:
+        return " ".join(
+            [
+                f"--conf spark.archives=s3://{self.bucket}/{self.venv_package_key}#environment",
+                "--conf spark.emr-serverless.driverEnv.PYSPARK_DRIVER_PYTHON=./environment/bin/python",
+                "--conf spark.emr-serverless.driverEnv.PYSPARK_PYTHON=./environment/bin/python",
+                "--conf spark.executorEnv.PYSPARK_PYTHON=./environment/bin/python",
+                self.environ_conf_str,
+            ]
+        )
+
+    def get_log_path(self, step: ADFStep, batch_id: str) -> str:
+        return f"s3://{self.bucket}/{self.s3_prefix}logs/{step.flow.name}/{step.name}/{step.version}/{batch_id}.logs"
+
+    def submit_step(
+        self,
+        step_in: ADFStep,
+        step_out: ADFStep,
+        batch_id: str,
+        implementer: "ADF.components.implementers.ADFImplementer",
+        icp: str,
+        fcp: str,
+        synchronous: bool = False,
+    ) -> Optional[subprocess.Popen]:
+        emr_serverless_config = self.emr_serverless_config
+        if emr_serverless_config is None:
+            raise ValueError(
+                f"EMR Serverless config is null, are you sure the {str(self)} application is ready ?"
+            )
+        emr_serverless_client.start_job_run(
+            name=f"{step_out.flow.name}:{step_out.name}:{step_out.version}::{batch_id}",
+            applicationId=emr_serverless_config.application_id,
+            executionRoleArn=self.role_arn,
+            jobDriver={
+                "sparkSubmit": {
+                    "entryPoint": f"s3://{self.bucket}/{self.s3_launcher_key}",
+                    "entryPointArguments": [
+                        self.s3_icp,
+                        "apply-step",
+                        self.s3_fcp_template.format(
+                            collection_name=step_out.flow.collection.name
+                        ),
+                        step_in.flow.name,
+                        step_in.name,
+                        step_out.flow.name,
+                        step_out.name,
+                        batch_id,
+                    ],
+                    "sparkSubmitParameters": self.conf_str,
+                }
+            },
+            configurationOverrides={
+                "monitoringConfiguration": {
+                    "s3MonitoringConfiguration": {
+                        "logUri": self.get_log_path(step_out, batch_id)
+                    }
+                }
+            },
+        )
+        return None
+
+    def submit_combination_step(
+        self,
+        combination_step: ADFCombinationStep,
+        batch_args: List[str],
+        batch_id: str,
+        implementer: "ADF.components.implementers.ADFImplementer",
+        icp: str,
+        fcp: str,
+        synchronous: bool = False,
+    ) -> Optional[subprocess.Popen]:
+        emr_serverless_config = self.emr_serverless_config
+        if emr_serverless_config is None:
+            raise ValueError(
+                f"EMR Serverless config is null, are you sure the {str(self)} application is ready ?"
+            )
+        emr_serverless_client.start_job_run(
+            name=f"{combination_step.flow.name}:{combination_step.name}:{combination_step.version}::{batch_id}",
+            applicationId=emr_serverless_config.application_id,
+            executionRoleArn=self.role_arn,
+            jobDriver={
+                "sparkSubmit": {
+                    "entryPoint": f"s3://{self.bucket}/{self.s3_launcher_key}",
+                    "entryPointArguments": [
+                        self.s3_icp,
+                        "apply-combination-step",
+                        self.s3_fcp_template.format(
+                            collection_name=combination_step.flow.collection.name
+                        ),
+                        combination_step.flow.name,
+                        combination_step.name,
+                        batch_id,
+                        *batch_args,
+                    ],
+                    "sparkSubmitParameters": self.conf_str,
+                }
+            },
+            configurationOverrides={
+                "monitoringConfiguration": {
+                    "s3MonitoringConfiguration": {
+                        "logUri": self.get_log_path(combination_step, batch_id)
+                    }
+                }
+            },
+        )
+        return None
+
+
+class ManagedAWSEMRServerlessLayer(AWSEMRServerlessLayer):
+    def __init__(
+        self,
+        as_layer: str,
+        bucket: str,
+        s3_prefix: str,
+        name: str,
+        role_arn: str,
+        s3_launcher_key: str,
+        venv_package_key: str,
+        s3_icp: str,
+        s3_fcp_template: str,
+        format: str = "csv",
+        landing_format: Optional[str] = None,
+        environ: Optional[Dict] = None,
+        release_label: str = "emr-6.6.0",
+        initial_driver_worker_count: int = 1,
+        initial_driver_cpu: str = "1vCPU",
+        initial_driver_memory: str = "2GB",
+        initial_executor_worker_count: int = 1,
+        initial_executor_cpu: str = "1vCPU",
+        initial_executor_memory: str = "2GB",
+        max_cpu: Optional[str] = None,
+        max_memory: Optional[str] = None,
+        idle_timeout_minutes: int = 15,
+        sg_id: Optional[str] = None,
+        subnet_id: Optional[str] = None,
+    ):
+        super().__init__(
+            as_layer=as_layer,
+            bucket=bucket,
+            s3_prefix=s3_prefix,
+            role_arn=role_arn,
+            s3_launcher_key=s3_launcher_key,
+            venv_package_key=venv_package_key,
+            s3_icp=s3_icp,
+            s3_fcp_template=s3_fcp_template,
+            format=format,
+            landing_format=landing_format or format,
+            environ=environ,
+        )
+        self.emr_serverless_connector = AWSEMRServerlessConnector(
+            name=name,
+            release_label=release_label,
+            initial_driver_worker_count=initial_driver_worker_count,
+            initial_driver_cpu=initial_driver_cpu,
+            initial_driver_memory=initial_driver_memory,
+            initial_executor_worker_count=initial_executor_worker_count,
+            initial_executor_cpu=initial_executor_cpu,
+            initial_executor_memory=initial_executor_memory,
+            max_cpu=max_cpu,
+            max_memory=max_memory,
+            idle_timeout_minutes=idle_timeout_minutes,
+            sg_id=sg_id,
+            subnet_id=subnet_id,
+        )
+
+    @property
+    def emr_serverless_config(self) -> Optional[AWSEMRServerlessConfig]:
+        return self.emr_serverless_connector.fetch_config()
+
+    def setup_layer(self) -> None:
+        self.emr_serverless_connector.update_or_create()
+
+    def destroy(self) -> None:
+        self.emr_serverless_connector.destroy_if_exists()
+        s3_delete_prefix(self.bucket, self.s3_prefix, ignore_nosuchbucket=True)
+
+    def output_prebuilt_config(self) -> Dict[str, str]:
+        emr_serverless_config = self.emr_serverless_config
+        return {
+            "application_id": emr_serverless_config.application_id,
+            "bucket": self.bucket,
+            "s3_prefix": self.s3_prefix,
+            "role_arn": self.role_arn,
+            "s3_launcher_key": self.s3_launcher_key,
+            "venv_package_key": self.venv_package_key,
+            "s3_icp": self.s3_icp,
+            "s3_fcp_template": self.s3_fcp_template,
+            "format": self.format,
+            "landing_format": self.landing_format,
+            "environ": self.environ,
+        }
+
+
+class PrebuiltAWSEMRServerlessLayer(AWSEMRServerlessLayer):
+    def __init__(
+        self,
+        as_layer: str,
+        application_id: str,
+        bucket: str,
+        s3_prefix: str,
+        role_arn: str,
+        s3_launcher_key: str,
+        venv_package_key: str,
+        s3_icp: str,
+        s3_fcp_template: str,
+        format: str = "csv",
+        landing_format: Optional[str] = None,
+        environ: Optional[Dict] = None,
+    ):
+        super().__init__(
+            as_layer=as_layer,
+            bucket=bucket,
+            s3_prefix=s3_prefix,
+            role_arn=role_arn,
+            s3_launcher_key=s3_launcher_key,
+            venv_package_key=venv_package_key,
+            s3_icp=s3_icp,
+            s3_fcp_template=s3_fcp_template,
+            format=format,
+            landing_format=landing_format or format,
+            environ=environ,
+        )
+        self._emr_serverless_config = AWSEMRServerlessConfig(
+            response={},
+            application_id=application_id,
+            name="",
+            arn="",
+            state="",
+            application_type="",
+            release_label="",
+            initial_driver_worker_count=-1,
+            initial_driver_cpu="",
+            initial_driver_memory="",
+            initial_driver_disk="",
+            initial_executor_worker_count=-1,
+            initial_executor_cpu="",
+            initial_executor_memory="",
+            initial_executor_disk="",
+            max_cpu="",
+            max_memory="",
+            idle_timeout_minutes=-1,
+            sg_id="",
+            subnet_id="",
+        )
+
+    @property
+    def emr_serverless_config(self) -> AWSEMRServerlessConfig:
+        return self._emr_serverless_config
 
     def setup_layer(self) -> None:
         raise AWSUnmanagedOperation(self, "setup_layer")

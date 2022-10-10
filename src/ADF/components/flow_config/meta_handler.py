@@ -1,3 +1,4 @@
+import logging
 import datetime
 
 from typing import Dict, Union, Type, Optional, List
@@ -88,6 +89,9 @@ class ADFMetaColumn(ToDictMixin):
             raise InvalidMetaColumn(errs)
 
     def handle_missing(self, ads: AbstractDataStructure) -> AbstractDataStructure:
+        logging.info(
+            f"Handling missing column '{self.name}' with option '{self.on_missing}'..."
+        )
         if self.on_missing == "ignore":
             return ads
         elif self.on_missing == "fail":
@@ -101,6 +105,9 @@ class ADFMetaColumn(ToDictMixin):
             )
 
     def handle_matching(self, ads: AbstractDataStructure) -> AbstractDataStructure:
+        logging.info(
+            f"Handling matched column '{self.name}' with cast '{self.cast.__name__}'..."
+        )
         if self.cast is not None:
             ads[self.name] = ads[self.name].as_type(self.cast)
         return ads
@@ -176,8 +183,18 @@ class ADFMetaHandler(ToDictMixin):
         matching = [col for col in set(ads_cols) & set(meta_cols.keys())]
         extra = [col for col in ads_cols if col not in meta_cols]
         missing = [col for col in meta_cols if col not in ads_cols]
+        logging.info(f"ADS columns     : {', '.join(ads_cols)}")
+        logging.info(f"Meta columns    : {', '.join(meta_cols.keys())}")
+        logging.info(f"Extra columns   : {', '.join(extra)}")
+        logging.info(f"Missing columns : {', '.join(missing)}")
 
         # Handle extra columns
+        if extra:
+            logging.info(
+                f"Handling extra columns : {', '.join(extra)} with option '{self.on_extra}'..."
+            )
+        else:
+            logging.info(f"No extra columns (option '{self.on_extra}')")
         if self.on_extra == "ignore":
             pass
         elif self.on_extra == "fail":

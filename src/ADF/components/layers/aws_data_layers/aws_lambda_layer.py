@@ -280,6 +280,8 @@ class ManagedAWSLambdaLayer(AWSLambdaLayer):
         sqs_config = self.sqs_config
         lambda_config = self.lambda_config
         return {
+            "bucket": self.bucket,
+            "s3_prefix": self.s3_prefix,
             "s3_icp": self.s3_icp,
             "s3_fcp_template": self.s3_fcp_template,
             "sqs_name": sqs_config.name if sqs_config else None,

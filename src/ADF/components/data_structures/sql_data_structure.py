@@ -23,11 +23,7 @@ class SQLDataStructure(AbstractDataStructure):
         {
             RawSQLConcretization: ADSConcretizer(
                 concretize=lambda ads: RawSQLConcretization(
-                    sql=str(
-                        ads.query().statement.compile(
-                            compile_kwargs={"literal_binds": True}
-                        )
-                    ),
+                    sql=ads.query_string(),
                     cols={
                         col_name: sql_inverse_type_map[col.type.__class__]
                         for col_name, col in ads.cols.items()
@@ -61,6 +57,22 @@ class SQLDataStructure(AbstractDataStructure):
         self.session = session
         self.subquery = subquery
         self.cols = cols
+
+    def query_string(self, labels: Optional[List] = None):
+        dialect = self.session.get_bind().dialect
+        ret = str(
+            self.query(labels).statement.compile(
+                dialect=dialect, compile_kwargs={"literal_binds": True}
+            )
+        )
+        try:
+            from pyathena.sqlalchemy_athena import AthenaDialect
+
+            if isinstance(dialect, AthenaDialect):
+                ret = ret.replace("AS STRING", "AS VARCHAR")
+        except ModuleNotFoundError:
+            pass
+        return ret
 
     def query(self, labels: Optional[List] = None):
         labels = labels or list(self.cols.keys())
@@ -160,6 +172,7 @@ class SQLDataStructure(AbstractDataStructure):
         l_map: Dict[str, str] = None,
         r_map: Dict[str, str] = None,
     ) -> "SQLDataStructure":
+        output_cols = list(l_map.values()) + list(r_map.values())
         if how == "cross":
             subquery = self.session.query(
                 *[col.label(l_map[label]) for label, col in self.cols.items()],
@@ -168,7 +181,7 @@ class SQLDataStructure(AbstractDataStructure):
             return SQLDataStructure(
                 session=self.session,
                 subquery=subquery,
-                cols={col: subquery.c[col] for col in {**l_map, **r_map}.values()},
+                cols={col: subquery.c[col] for col in output_cols},
             )
         elif how in ["left", "right", "outer", "inner"]:
             condition = literal(True)
@@ -194,7 +207,7 @@ class SQLDataStructure(AbstractDataStructure):
             return SQLDataStructure(
                 session=self.session,
                 subquery=subquery,
-                cols={col: subquery.c[col] for col in {**l_map, **r_map}.values()},
+                cols={col: subquery.c[col] for col in output_cols},
             )
 
     def _group_by(

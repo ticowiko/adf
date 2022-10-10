@@ -12,7 +12,7 @@ from sqlalchemy.engine import Connection
 from ADF.exceptions import UnhandledMeta
 from ADF.components.layers import AbstractDataLayer
 from ADF.components.data_structures import SQLDataStructure
-from ADF.components.flow_config import ADFStep
+from ADF.components.flow_config import ADFStep, ADFLandingStep
 from ADF.utils import create_table_meta
 from ADF.config import ADFGlobalConfig
 
@@ -69,7 +69,7 @@ class SQLDataLayer(AbstractDataLayer, ABC):
                     f"Cannot create session from empty url in {self}. Are you sure you've setup this layer ?"
                 )
             self._session = sessionmaker(
-                bind=create_engine(f"{self.url}", **self.session_kwargs)
+                bind=create_engine(self.url, **self.session_kwargs)
             )()
         return self._session
 
@@ -127,6 +127,7 @@ class SQLDataLayer(AbstractDataLayer, ABC):
                 primary_key=step.get_partition_key()
                 if self.add_partition_to_pk()
                 else [],
+                include_timestamp_col=not isinstance(step, ADFLandingStep),
                 **self.get_step_table_creation_kwargs(step),
             )
         return self.table_metas[step]
@@ -136,6 +137,18 @@ class SQLDataLayer(AbstractDataLayer, ABC):
             self.validate_step(step)
             self.get_step_table_meta(step)
         self.base.metadata.create_all(self.session.get_bind())
+
+    def get_step_tech_cols(self, step: ADFStep) -> List[str]:
+        return (
+            [
+                ADFGlobalConfig.BATCH_ID_COLUMN_NAME,
+            ]
+            if isinstance(step, ADFLandingStep)
+            else [
+                ADFGlobalConfig.BATCH_ID_COLUMN_NAME,
+                ADFGlobalConfig.TIMESTAMP_COLUMN_NAME,
+            ]
+        )
 
     def read_batch_data(self, step: ADFStep, batch_id: str) -> SQLDataStructure:
         self.validate_step(step)
@@ -151,10 +164,7 @@ class SQLDataLayer(AbstractDataLayer, ABC):
             cols={
                 col_name: subquery.c[col_name]
                 for col_name in [col.name for col in step.meta.columns]
-                + [
-                    ADFGlobalConfig.BATCH_ID_COLUMN_NAME,
-                    ADFGlobalConfig.TIMESTAMP_COLUMN_NAME,
-                ]
+                + self.get_step_tech_cols(step)
             },
         )
 
@@ -167,10 +177,8 @@ class SQLDataLayer(AbstractDataLayer, ABC):
             cols={
                 col_name: subquery.c[col_name]
                 for col_name in [col.name for col in step.meta.columns]
-                + [
-                    ADFGlobalConfig.BATCH_ID_COLUMN_NAME,
-                    ADFGlobalConfig.TIMESTAMP_COLUMN_NAME,
-                ]
+                + [ADFGlobalConfig.BATCH_ID_COLUMN_NAME]
+                + self.get_step_tech_cols(step)
             },
         )
 
@@ -215,11 +223,9 @@ class SQLDataLayer(AbstractDataLayer, ABC):
     def detect_batches(self, step: ADFStep) -> List[str]:
         return [
             e[ADFGlobalConfig.BATCH_ID_COLUMN_NAME]
-            for e in self.session.query(
-                self.get_step_table_meta(step).__table__.c[
-                    ADFGlobalConfig.BATCH_ID_COLUMN_NAME
-                ]
-            ).distinct()
+            for e in self.read_full_data(step)
+            .distinct([ADFGlobalConfig.BATCH_ID_COLUMN_NAME])
+            .to_list_of_dicts()
         ]
 
     def delete_step(self, step: ADFStep) -> None:

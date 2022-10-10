@@ -12,7 +12,7 @@ if "--emr" in sys.argv:
 
 
 setup(
-    name="adf_workspace",
+    name="adf_wksp",
     version="0.0.1",
     description="ADF workspace",
     author="Some Name",

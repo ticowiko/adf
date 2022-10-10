@@ -41,6 +41,7 @@ from ADF.exceptions import (
     CombinationStepError,
 )
 from ADF.config import ADFGlobalConfig
+from ADF.utils import s3_client, s3_url_to_bucket_and_key, run_command
 
 
 class ADFImplementer(ABC):
@@ -115,7 +116,19 @@ class ADFImplementer(ABC):
 
     @classmethod
     def from_config_path(cls, config_path: str) -> "ADFImplementer":
-        return cls.from_config_file(open(config_path, "r"))
+        if config_path.startswith("s3://"):
+            logging.info(f"Loading {cls.__name__} from path {config_path}")
+            bucket, key = s3_url_to_bucket_and_key(config_path)
+            return cls.from_yaml_string(
+                s3_client.get_object(
+                    Bucket=bucket,
+                    Key=key,
+                )["Body"]
+                .read()
+                .decode("utf-8")
+            )
+        else:
+            return cls.from_config_file(open(config_path, "r"))
 
     @classmethod
     def from_config_file(cls, config_file: TextIO) -> "ADFImplementer":
@@ -181,8 +194,13 @@ class ADFImplementer(ABC):
     def setup_implementer_flows(self, flows: ADFCollection, icp: str, fcp: str):
         pass
 
+    def install_extra_packages(self) -> None:
+        for extra_package in self.extra_packages:
+            logging.info(f"Installing package '{extra_package}' locally...")
+            run_command("python3 setup.py install", cwd=extra_package)
+
     @abstractmethod
-    def update_code(self):
+    def update_code(self) -> None:
         pass
 
     @abstractmethod
@@ -239,11 +257,13 @@ class ADFImplementer(ABC):
         }
 
     def setup_layers(self):
-        for _, layer in self.layers.items():
+        for layer in self.layers.values():
+            logging.info(f"Setting up layer {layer}...")
             layer.setup_layer()
 
     def destroy_layers(self):
-        for _, layer in self.layers.items():
+        for layer in self.layers.values():
+            logging.info(f"Destroying layer {layer}...")
             layer.destroy()
 
     def setup_flows(self, flows: ADFCollection, icp: str, fcp: str):
@@ -368,6 +388,7 @@ class ADFImplementer(ABC):
         batch_id: str,
         default_write_interface: AbstractDataInterface,
     ) -> None:
+        logging.info(f"Handling step result for {str(step)}::{batch_id}")
         now = datetime.datetime.utcnow()
         if isinstance(result, dict):
             output_steps: Dict[str, ADFReceptionStep] = {
@@ -396,6 +417,7 @@ class ADFImplementer(ABC):
                 step.meta.format(result, batch_id, now), step, batch_id
             )
             self.state_handler.set_success(step, batch_id)
+        logging.info(f"Finished handling step result for {str(step)}::{batch_id}")
 
     def submit_step(
         self,
@@ -451,6 +473,7 @@ class ADFImplementer(ABC):
         step_out: ADFStep,
         batch_id: str,
     ) -> None:
+        logging.info(f"Applying {str(step_in)} -> {str(step_out)}...")
         self.state_handler.set_running(step_out, batch_id)
         try:
             transition = self.get_transition(step_in, step_out)
@@ -531,6 +554,7 @@ class ADFImplementer(ABC):
         batch_args: List[str],
         batch_id: str,
     ):
+        logging.info(f"Applying combination step {str(combination_step)}...")
         self.state_handler.set_running(combination_step, batch_id)
         try:
             layer = self.layers[combination_step.layer]

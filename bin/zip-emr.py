@@ -33,6 +33,7 @@ if __name__ == "__main__":
         zip_hanlder=zip_handler,
         path=args.root_path,
         exclude=lambda x: x.endswith(".zip")
+        or x.endswith(".gz")
         or x.endswith("key-pair")
         or x.startswith("build/")
         or x.startswith("dist/")
