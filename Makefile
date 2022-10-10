@@ -4,6 +4,9 @@ LAMBDA_ZIP_NAME := lambda_package.zip
 
 .DEFAULT_GOAL := all
 
+install_dev:
+	python setup.py install --dev
+
 install:
 	python setup.py install
 
