@@ -8,7 +8,9 @@ import ADF
 
 def get_aws_region() -> str:
     try:
-        region = boto3.session.Session().region_name or os.environ.get("AWS_DEFAULT_REGION", "eu-west-1")
+        region = boto3.session.Session().region_name or os.environ.get(
+            "AWS_DEFAULT_REGION", "eu-west-1"
+        )
     except:
         region = "eu-west-1"
     return region

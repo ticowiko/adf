@@ -524,7 +524,9 @@ class AWSEMRServerlessConfig(AWSResourceConfig):
         self.initial_executor_memory = initial_executor_memory.replace(" ", "")
         self.initial_executor_disk = initial_executor_disk.replace(" ", "")
         self.max_cpu = max_cpu.replace(" ", "") if max_cpu is not None else None
-        self.max_memory = max_memory.replace(" ", "") if max_memory is not None else None
+        self.max_memory = (
+            max_memory.replace(" ", "") if max_memory is not None else None
+        )
         self.idle_timeout_minutes = idle_timeout_minutes
         self.sg_id = sg_id
         self.subnet_id = subnet_id
@@ -539,19 +541,45 @@ class AWSEMRServerlessConfig(AWSResourceConfig):
             state=response["state"],
             application_type=response["type"],
             release_label=response["releaseLabel"],
-            initial_driver_worker_count=response["initialCapacity"]["Driver"]["workerCount"],
-            initial_driver_cpu=response["initialCapacity"]["Driver"]["workerConfiguration"]["cpu"],
-            initial_driver_memory=response["initialCapacity"]["Driver"]["workerConfiguration"]["memory"],
-            initial_driver_disk=response["initialCapacity"]["Driver"]["workerConfiguration"]["disk"],
-            initial_executor_worker_count=response["initialCapacity"]["Executor"]["workerCount"],
-            initial_executor_cpu=response["initialCapacity"]["Executor"]["workerConfiguration"]["cpu"],
-            initial_executor_memory=response["initialCapacity"]["Executor"]["workerConfiguration"]["memory"],
-            initial_executor_disk=response["initialCapacity"]["Executor"]["workerConfiguration"]["disk"],
-            max_cpu=response["maximumCapacity"]["cpu"] if "maximumCapacity" in response else None,
-            max_memory=response["maximumCapacity"]["memory"] if "maximumCapacity" in response else None,
-            idle_timeout_minutes=response["autoStopConfiguration"]["idleTimeoutMinutes"],
-            sg_id=first_or_none(response["networkConfiguration"]["securityGroupIds"]) if "networkConfiguration" in response else None,
-            subnet_id=first_or_none(response["networkConfiguration"]["subnetIds"]) if "networkConfiguration" in response else None,
+            initial_driver_worker_count=response["initialCapacity"]["Driver"][
+                "workerCount"
+            ],
+            initial_driver_cpu=response["initialCapacity"]["Driver"][
+                "workerConfiguration"
+            ]["cpu"],
+            initial_driver_memory=response["initialCapacity"]["Driver"][
+                "workerConfiguration"
+            ]["memory"],
+            initial_driver_disk=response["initialCapacity"]["Driver"][
+                "workerConfiguration"
+            ]["disk"],
+            initial_executor_worker_count=response["initialCapacity"]["Executor"][
+                "workerCount"
+            ],
+            initial_executor_cpu=response["initialCapacity"]["Executor"][
+                "workerConfiguration"
+            ]["cpu"],
+            initial_executor_memory=response["initialCapacity"]["Executor"][
+                "workerConfiguration"
+            ]["memory"],
+            initial_executor_disk=response["initialCapacity"]["Executor"][
+                "workerConfiguration"
+            ]["disk"],
+            max_cpu=response["maximumCapacity"]["cpu"]
+            if "maximumCapacity" in response
+            else None,
+            max_memory=response["maximumCapacity"]["memory"]
+            if "maximumCapacity" in response
+            else None,
+            idle_timeout_minutes=response["autoStopConfiguration"][
+                "idleTimeoutMinutes"
+            ],
+            sg_id=first_or_none(response["networkConfiguration"]["securityGroupIds"])
+            if "networkConfiguration" in response
+            else None,
+            subnet_id=first_or_none(response["networkConfiguration"]["subnetIds"])
+            if "networkConfiguration" in response
+            else None,
         )
 
 

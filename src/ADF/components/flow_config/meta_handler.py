@@ -89,7 +89,9 @@ class ADFMetaColumn(ToDictMixin):
             raise InvalidMetaColumn(errs)
 
     def handle_missing(self, ads: AbstractDataStructure) -> AbstractDataStructure:
-        logging.info(f"Handling missing column '{self.name}' with option '{self.on_missing}'...")
+        logging.info(
+            f"Handling missing column '{self.name}' with option '{self.on_missing}'..."
+        )
         if self.on_missing == "ignore":
             return ads
         elif self.on_missing == "fail":
@@ -103,7 +105,9 @@ class ADFMetaColumn(ToDictMixin):
             )
 
     def handle_matching(self, ads: AbstractDataStructure) -> AbstractDataStructure:
-        logging.info(f"Handling matched column '{self.name}' with cast '{self.cast.__name__}'...")
+        logging.info(
+            f"Handling matched column '{self.name}' with cast '{self.cast.__name__}'..."
+        )
         if self.cast is not None:
             ads[self.name] = ads[self.name].as_type(self.cast)
         return ads
@@ -186,7 +190,9 @@ class ADFMetaHandler(ToDictMixin):
 
         # Handle extra columns
         if extra:
-            logging.info(f"Handling extra columns : {', '.join(extra)} with option '{self.on_extra}'...")
+            logging.info(
+                f"Handling extra columns : {', '.join(extra)} with option '{self.on_extra}'..."
+            )
         else:
             logging.info(f"No extra columns (option '{self.on_extra}')")
         if self.on_extra == "ignore":

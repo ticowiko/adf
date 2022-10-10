@@ -98,11 +98,13 @@ def create_table_meta(
         )
     if include_timestamp_col:
         extra_cols[ADFGlobalConfig.TIMESTAMP_COLUMN_NAME] = Column(
-                        DateTime,
-                        nullable=False,
-                    )
+            DateTime,
+            nullable=False,
+        )
     if include_batch_id_col:
-        extra_cols[ADFGlobalConfig.BATCH_ID_COLUMN_NAME] = Column(String, nullable=False)
+        extra_cols[ADFGlobalConfig.BATCH_ID_COLUMN_NAME] = Column(
+            String, nullable=False
+        )
     return type(
         name,
         (base,),

@@ -37,6 +37,7 @@ if "--dev" in sys.argv:
     requirements += [
         "boto3-stubs>=1.24.66",
         "ipython>=7.27.0",
+        "black>=22.10",
     ]
     sys.argv.remove("--dev")
 if "--emr" in sys.argv:

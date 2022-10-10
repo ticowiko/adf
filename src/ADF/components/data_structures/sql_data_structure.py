@@ -61,10 +61,13 @@ class SQLDataStructure(AbstractDataStructure):
     def query_string(self, labels: Optional[List] = None):
         dialect = self.session.get_bind().dialect
         ret = str(
-            self.query(labels).statement.compile(dialect=dialect, compile_kwargs={"literal_binds": True})
+            self.query(labels).statement.compile(
+                dialect=dialect, compile_kwargs={"literal_binds": True}
+            )
         )
         try:
             from pyathena.sqlalchemy_athena import AthenaDialect
+
             if isinstance(dialect, AthenaDialect):
                 ret = ret.replace("AS STRING", "AS VARCHAR")
         except ModuleNotFoundError:

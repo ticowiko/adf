@@ -43,5 +43,7 @@ def s3_list_folders(bucket: str, prefix: str) -> List[str]:
 
 def s3_url_to_bucket_and_key(path: str) -> Tuple[str, str]:
     if not path.startswith("s3://"):
-        raise ValueError(f"Cannot parse s3 path {path} as it does not start with 's3://'")
-    return path[5:].split("/")[0], path[5:][path[5:].find("/")+1:]
+        raise ValueError(
+            f"Cannot parse s3 path {path} as it does not start with 's3://'"
+        )
+    return path[5:].split("/")[0], path[5:][path[5:].find("/") + 1 :]

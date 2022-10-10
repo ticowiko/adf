@@ -9,7 +9,8 @@ from sqlalchemy.exc import ProgrammingError
 from ADF.components.data_structures import (
     SQLDataStructure,
     PandasDataStructure,
-    SparkDataStructure, AbstractDataStructure,
+    SparkDataStructure,
+    AbstractDataStructure,
 )
 from ADF.components.flow_config import ADFStep
 from ADF.components.layer_transitions import ADLTransition
@@ -428,5 +429,7 @@ class AthenaToAthenaTransition(ADLTransition):
     def read_full_data(self, step: ADFStep) -> AbstractDataStructure:
         return self.layer_in.read_full_data(step)
 
-    def write_batch_data(self, ads: AbstractDataStructure, step: ADFStep, batch_id: str) -> None:
+    def write_batch_data(
+        self, ads: AbstractDataStructure, step: ADFStep, batch_id: str
+    ) -> None:
         self.layer_out.write_batch_data(ads, step, batch_id)

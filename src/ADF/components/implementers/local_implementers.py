@@ -101,19 +101,27 @@ class MultiLayerLocalImplementer(LocalImplementer):
         postgres_config = config.get("postgres_config")
         if postgres_config:
             if "admin_user" in postgres_config and "admin_pw" in postgres_config:
-                logging.info("Setting up DB and technical user using postgres admin credentials.")
+                logging.info(
+                    "Setting up DB and technical user using postgres admin credentials."
+                )
                 setup_postgres_db(
                     host=postgres_config.get("host", "localhost"),
                     port=postgres_config.get("port", 5432),
                     db=postgres_config["db"],
                     admin_user=postgres_config["admin_user"],
                     admin_pw=postgres_config["admin_pw"],
-                    users=[{"user": postgres_config["user"], "pw": postgres_config["pw"]}],
+                    users=[
+                        {"user": postgres_config["user"], "pw": postgres_config["pw"]}
+                    ],
                 )
             else:
-                logging.info("Skipping DB and user setup as no postgres admin credentials were given.")
+                logging.info(
+                    "Skipping DB and user setup as no postgres admin credentials were given."
+                )
         elif config["layers"].get("postgres", []):
-            raise RuntimeError("Cannot use postgres layers without passing a postgres config.")
+            raise RuntimeError(
+                "Cannot use postgres layers without passing a postgres config."
+            )
         root_path = config["root_path"]
         return cls(
             root_path=root_path,

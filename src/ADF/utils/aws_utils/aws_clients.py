@@ -44,9 +44,15 @@ except:
     emr_serverless_client = None
 ec2_client: EC2Client = boto3.client("ec2", region_name=ADFGlobalConfig.AWS_REGION)
 sqs_client: SQSClient = boto3.client("sqs", region_name=ADFGlobalConfig.AWS_REGION)
-lambda_client: LambdaClient = boto3.client("lambda", region_name=ADFGlobalConfig.AWS_REGION)
-athena_client: AthenaClient = boto3.client("athena", region_name=ADFGlobalConfig.AWS_REGION)
-redshift_client: RedshiftClient = boto3.client("redshift", region_name=ADFGlobalConfig.AWS_REGION)
+lambda_client: LambdaClient = boto3.client(
+    "lambda", region_name=ADFGlobalConfig.AWS_REGION
+)
+athena_client: AthenaClient = boto3.client(
+    "athena", region_name=ADFGlobalConfig.AWS_REGION
+)
+redshift_client: RedshiftClient = boto3.client(
+    "redshift", region_name=ADFGlobalConfig.AWS_REGION
+)
 
 iam_role_exists_waiter = iam_client.get_waiter("role_exists")
 iam_instance_profile_exists_waiter = iam_client.get_waiter("instance_profile_exists")
