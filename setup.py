@@ -5,7 +5,7 @@ import re
 import sys
 import glob
 from setuptools import setup, find_packages
-
+from pathlib import Path
 
 mo = re.search(
     r"^__version__ = ['\"]([^'\"]*)['\"]",
@@ -62,6 +62,8 @@ setup(
     name="adf",
     version=version,
     description="Create infrastructure agnostic data processing pipelines",
+    long_description=(Path(__file__).parent / "README.md").read_text(),
+    long_description_content_type='text/markdown',
     author="Patrick El Hage",
     author_email="patrickelhageuniv@gmail.com",
     packages=find_packages(where="src/"),

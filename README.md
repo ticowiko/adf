@@ -435,6 +435,8 @@ flows:
 
 - [Local Implementer](#local-implementer)
 - [AWS Implementer](#aws-implementer)
+  - [Managed infrastructure AWS Implementer](#managed-infrastructure-aws-implementer)
+  - [Prebuilt infrastructure AWS Implementer](#prebuilt-infrastructure-aws-implementer)
 
 While implementer configurations are allowed to vary freely, there is one parameter they must all contain to actually specify which implementer they are destined for. Its value must be a valid python import path.
 
@@ -520,28 +522,32 @@ layers:
 
 ## AWS Implementer
 
-The AWS implementer configuration file is similar in structure to that of the local implementer, but individual layers carry sizing information and not just a name. In addition, the state handler configuration and sizing must also be specified.
+### Managed infrastructure AWS Implementer
 
-| Parameter           | Obligation   | Description                                                                                                     |
-|---------------------|--------------|-----------------------------------------------------------------------------------------------------------------|
-| `implementer_class` | **REQUIRED** | Module path followed by implementer class name                                                                  |
-| `mode`              | **REQUIRED** | Always set to `managed`                                                                                         |
-| `name`              | **REQUIRED** | An identifier for the implementer                                                                               |
-| `log_folder`        | **REQUIRED** | A local folder in which to store subcommand logs                                                                |
-| `bucket`            | **REQUIRED** | The S3 bucket used for data storage                                                                             |
-| `s3_prefix`         | **REQUIRED** | S3 prefix for all data and uploaded configuration                                                               |
-| `state_handler`     | **REQUIRED** | `engine`, `db_name`, `db_instance_class`, `allocated_storage`                                                   |
-| `extra_packages`    | **OPTIONAL** | List of local paths to any packages required                                                                    |
-| `lambda_layers`     | **OPTIONAL** | `sep`, `timeout`, `memory`                                                                                      |
-| `emr_layers`        | **OPTIONAL** | `master_instance_type`, `slave_instance_type`, `instance_count`, `step_concurrency`, `format`, `landing_format` |
-| `redshift_layers`   | **OPTIONAL** | `db_name`, `node_type`, `number_of_nodes`                                                                       |
+The AWS implementer configuration file is similar in structure to that of the local implementer. When ADF is given free rein over infrastructure deployment, individual layers carry sizing information. In addition, the state handler configuration and sizing must also be specified.
+
+| Parameter               | Obligation   | Description                                                                                                                                                                                                       |
+|-------------------------|--------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `implementer_class`     | **REQUIRED** | Module path followed by implementer class name                                                                                                                                                                    |
+| `mode`                  | **REQUIRED** | Set to `managed` to tell your implementer to handle infrastructure deployment                                                                                                                                     |
+| `name`                  | **REQUIRED** | An identifier for the implementer                                                                                                                                                                                 |
+| `log_folder`            | **REQUIRED** | A local folder in which to store subcommand logs                                                                                                                                                                  |
+| `bucket`                | **REQUIRED** | The S3 bucket used for data storage                                                                                                                                                                               |
+| `s3_prefix`             | **REQUIRED** | S3 prefix for all data and uploaded configuration                                                                                                                                                                 |
+| `state_handler`         | **REQUIRED** | `engine`, `db_name`, `db_instance_class`, `allocated_storage`                                                                                                                                                     |
+| `extra_packages`        | **OPTIONAL** | List of local paths to any additional required packages                                                                                                                                                           |
+| `lambda_layers`         | **OPTIONAL** | `sep`, `timeout`, `memory`                                                                                                                                                                                        |
+| `emr_layers`            | **OPTIONAL** | `master_instance_type`, `slave_instance_type`, `instance_count`, `step_concurrency`, `format`, `landing_format`                                                                                                   |
+| `emr_serverless_layers` | **OPTIONAL** | `initial_driver_worker_count`, `initial_driver_cpu`, `initial_driver_memory`, `initial_executor_worker_count`, `initial_executor_cpu`, `initial_executor_memory`, `max_cpu`, `max_memory`, `idle_timeout_minutes` |
+| `redshift_layers`       | **OPTIONAL** | `db_name`, `node_type`, `number_of_nodes`                                                                                                                                                                         |
+| `athena_layer`          | **OPTIONAL** | `landing_format`                                                                                                                                                                                                  |
 
 For example :
 
 ```yaml
 implementer_class: ADF.components.implementers.AWSImplementer
 extra_packages: [.]
-mode: managed
+mode: managed # ADF will handle infrastructure deployment
 name: implementer-name
 log_folder: local/path/to/logs
 bucket: YOUR-BUCKET-NAME-HERE
@@ -553,7 +559,7 @@ state_handler:
   allocated_storage: 20
 lambda_layers:
   lambda-layer-name:
-    sep: "," # Separator for CSVs
+    sep: "," # separator for CSVs
     timeout: 60
     memory: 1024
 emr_layers:
@@ -564,11 +570,110 @@ emr_layers:
     step_concurrency: 5
     format: parquet     # the format in which to store data
     landing_format: csv # the format in which to expect data in landing steps
+emr_serverless_layers:
+  serverless:
+    initial_driver_worker_count: 1
+    initial_driver_cpu: "1vCPU"
+    initial_driver_memory: "8GB"
+    initial_executor_worker_count: 1
+    initial_executor_cpu: "1vCPU"
+    initial_executor_memory: "8GB"
+    max_cpu: "32vCPU",
+    max_memory: "256GB",
+    idle_timeout_minutes: 15,
 redshift_layers:
   expose:
     db_name: expose
     number_of_nodes: 1
     node_type: ds2.xlarge
+athena_layers:
+  dump:
+    landing_format: csv # the format in which to expect data in landing steps
+```
+
+### Prebuilt infrastructure AWS Implementer
+
+If you wish to connect your AWS implementer to pre-existing infrastructure, you can do this by changing the implementer mode to `prebuilt`. Once the implementer setup is run, it is possible to output a `prebuilt` configuration and use it moving forward. This is the recommended usage, as `prebuilt` mode requires fewer permissions to run, as well as fewer API calls to determine the current state of the infrastructure. Unlike in `managed` mode, no sizing information is provided. Instead, we pass endpoints and various configurations that define the data layer.
+
+| Parameter               | Obligation   | Description                                                                                                                                                    |
+|-------------------------|--------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `implementer_class`     | **REQUIRED** | Module path followed by implementer class name                                                                                                                 |
+| `mode`                  | **REQUIRED** | Set to `managed` to tell your implementer to handle infrastructure deployment                                                                                  |
+| `name`                  | **REQUIRED** | An identifier for the implementer                                                                                                                              |
+| `log_folder`            | **REQUIRED** | A local folder in which to store subcommand logs                                                                                                               |
+| `bucket`                | **REQUIRED** | The S3 bucket used for data storage                                                                                                                            |
+| `s3_prefix`             | **REQUIRED** | S3 prefix for all data and uploaded configuration                                                                                                              |
+| `state_handler_url`     | **REQUIRED** | URL to state handler DB                                                                                                                                        |
+| `extra_packages`        | **OPTIONAL** | List of local paths to any additional required packages                                                                                                        |
+| `lambda_layers`         | **OPTIONAL** | `lambda_arn`, `lambda_name`, `s3_fcp_template`, `s3_icp`, `sep`, `sqs_arn`, `sqs_name`, `sqs_url`                                                              |
+| `emr_layers`            | **OPTIONAL** | `bucket`, `s3_prefix`, `cluster_id`, `cluster_arn`, `name`, `public_dns`, `log_uri`, `format`, `landing_format`                                                |
+| `emr_serverless_layers` | **OPTIONAL** | `application_id`, `bucket`, `environ`, `format`, `landing_format`, `role_arn`, `s3_fcp_template`, `s3_icp`, `s3_launcher_key`, `s3_prefix`, `venv_package_key` |
+| `redshift_layers`       | **OPTIONAL** | `table_prefix`, `endpoint`, `port`, `db_name`, `user`, `role_arn`                                                                                              |
+| `athena_layers`         | **OPTIONAL** | `bucket`, `db_name`, `landing_format`, `s3_prefix`, `table_prefix`                                                                                             |
+
+For example :
+
+```yaml
+implementer_class: ADF.components.implementers.AWSImplementer
+extra_packages: [.]
+mode: prebuilt # ADF will plug into pre-existing infrastructure
+name: implementer-name
+log_folder: local/path/to/logs
+bucket: YOUR-BUCKET-NAME-HERE
+s3_prefix: YOUR_S3_PREFIX/
+state_handler_url: postgresql://username:password@state.handler.db.url:5432/DB_NAME
+lambda_layers:
+  light:
+    lambda_arn: LAMBDA_ARN
+    lambda_name: LAMBDA_FUNCTION_NAME
+    s3_fcp_template: s3://TEMPLATE/TO/FCP/PATH/fcp.{collection_name}.yaml
+    s3_icp: s3://ICP/PATH/icp.yaml
+    sep: ',' # separator for CSVs
+    sqs_arn: SQS_ARN
+    sqs_name: SQS_QUEUE_NAME
+    sqs_url: https://url.to/sqs/queue
+emr_layers:
+  heavy:
+    bucket: YOUR-BUCKET-NAME-HERE
+    s3_prefix: S3/PREFIX/ # where to store data in the bucket
+    cluster_id: EMR_CLUSTER_ID
+    cluster_arn: EMR_CLUSTER_ARN
+    name: EMR_CLUSTER_NAME
+    public_dns: https://url.to.emr.cluster
+    log_uri: s3://PATH/TO/LOGS/
+    format: parquet     # the format in which to store data
+    landing_format: csv # the format in which to expect data in landing steps
+emr_serverless_layers:
+  serverless:
+    application_id: app-id
+    bucket: YOUR-BUCKET-NAME-HERE
+    environ:
+      AWS_DEFAULT_REGION: aws-region
+      RDS_PW: RDS_STATE_HANDLER_PASSWORD
+      REDSHIFT_PW: REDSHIFT_PASSWORD
+    format: parquet     # the format in which to store data
+    landing_format: csv # the format in which to expect data in landing steps
+    role_arn: EXECUTION_ROLE_ARN
+    s3_fcp_template: s3://TEMPLATE/TO/FCP/PATH/fcp.{collection_name}.yaml
+    s3_icp: s3://ICP/PATH/icp.yaml
+    s3_launcher_key: KEY/TO/ADF/LAUNCHER/adf-launcher.py
+    s3_prefix: S3/PREFIX/ # where to store data in the bucket
+    venv_package_key: S3/PREFIX/venv_package.tar.gz
+redshift_layers:
+  expose:
+    table_prefix: TABLE_PREFIX
+    endpoint: https://url.to.db
+    port: PORT_NUMBER
+    db_name: DB_NAME
+    user: DB_USERNAME
+    role_arn: EXECUTION_ROLE_ARN
+athena_layers:
+  dump:
+    bucket: YOUR-BUCKET-NAME-HERE
+    db_name: ATHENA_DB_NAME
+    landing_format: csv # the format in which to expect data in landing steps
+    s3_prefix: S3/PREFIX/TO/DATA/ # where to store data in the bucket
+    table_prefix: 'expose_'
 ```
 
 # API documentation
@@ -1216,7 +1321,6 @@ The return value represents the list of batch IDs in the output step that are co
 - [Output signature](#output-signature)
 - [Concretization](#concretization)
 
-
 The processing function signature depends on the specific step configuration. In particular, **data loaders** will modify the expected input arguments, and the presence of downstream reception steps will modify the expected output.
 
 ## Input signature
@@ -1338,7 +1442,6 @@ By default, a processing function must output a single ADS :
 def foo(ads: AbstractDataStructure) -> AbstractDataStructure:
     return ads[ads["some_col"] == "some_val"]
 ```
-
 
 However, hooking a processing step into a reception step changes the expected output signature of the processing function. Instead of returning a single ADS, it must now return a dictionary whose keys correspond to the reception step keys. Take the following flow configuration as an example :
 
