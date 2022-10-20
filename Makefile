@@ -1,8 +1,16 @@
 BUCKET := adf-bucket-3d05fc66-0f12-11ec-8eee-9cb6d0dc2783
 EMR_ZIP_NAME := emr_package.zip
 LAMBDA_ZIP_NAME := lambda_package.zip
+EMR_ZIP_KEY := $(shell python -c 'from ADF.config import ADFGlobalConfig ; print(ADFGlobalConfig.get_emr_package_zip_key())')
+LAMBDA_ZIP_KEY := $(shell python -c 'from ADF.config import ADFGlobalConfig ; print(ADFGlobalConfig.get_lambda_package_zip_key())')
+LAUNCHER_KEY := $(shell python -c 'from ADF.config import ADFGlobalConfig ; print(ADFGlobalConfig.get_adf_launcher_key())')
 
 .DEFAULT_GOAL := all
+
+echo_config:
+	echo EMR_ZIP_KEY : $(EMR_ZIP_KEY)
+	echo LAMBDA_ZIP_KEY : $(LAMBDA_ZIP_KEY)
+	echo LAUNCHER_KEY : $(LAUNCHER_KEY)
 
 install_dev:
 	python setup.py install --dev
@@ -13,24 +21,8 @@ lint:
 lint_check:
 	black src/ --check
 
-install:
+install: copy-data
 	python setup.py install
-
-zip-emr: local
-	python bin/zip-emr.py -r . -o $(EMR_ZIP_NAME)
-	EMR_ZIP_KEY=$$(python -c 'from ADF.config import ADFGlobalConfig ; print(ADFGlobalConfig.get_emr_package_zip_key())') ; \
-	aws s3 cp $(EMR_ZIP_NAME) s3://$(BUCKET)/$$EMR_ZIP_KEY ;
-	EMR_ZIP_KEY=$(shell python -c 'from ADF.config import ADFGlobalConfig ; print(ADFGlobalConfig.get_emr_package_zip_key())') ; \
-	aws s3api put-object-acl --bucket $(BUCKET) --key $$EMR_ZIP_KEY --acl public-read ;
-
-zip-lambda: local
-	python bin/zip-lambda.py -r . -o $(LAMBDA_ZIP_NAME)
-	LAMBDA_ZIP_KEY=$$( python -c 'from ADF.config import ADFGlobalConfig ; print(ADFGlobalConfig.get_lambda_package_zip_key())') ; \
-	aws s3 cp $(LAMBDA_ZIP_NAME) s3://$(BUCKET)/$$LAMBDA_ZIP_KEY
-	LAMBDA_ZIP_KEY=$$( python -c 'from ADF.config import ADFGlobalConfig ; print(ADFGlobalConfig.get_lambda_package_zip_key())') ; \
-	aws s3api put-object-acl --bucket $(BUCKET) --key $$LAMBDA_ZIP_KEY --acl public-read
-
-zips: zip-emr zip-lambda
 
 copy-data:
 	cp config/flows/*.yaml src/ADF/data/config/flows/
@@ -46,13 +38,23 @@ copy-data:
 	cp data_samples/*.csv src/ADF/data/data_samples/
 	cp src/ADF/funcs.py src/ADF/data/pyfiles/operations.py
 
-local: copy-data install
+zip-emr: install
+	python bin/zip-emr.py -r . -o $(EMR_ZIP_NAME)
+	aws s3 cp $(EMR_ZIP_NAME) s3://$(BUCKET)/$(EMR_ZIP_KEY)
+	aws s3api put-object-acl --bucket $(BUCKET) --key $(EMR_ZIP_KEY) --acl public-read
+
+zip-lambda: install
+	python bin/zip-lambda.py -r . -o $(LAMBDA_ZIP_NAME)
+	aws s3 cp $(LAMBDA_ZIP_NAME) s3://$(BUCKET)/$(LAMBDA_ZIP_KEY)
+	aws s3api put-object-acl --bucket $(BUCKET) --key $(LAMBDA_ZIP_KEY) --acl public-read
+
+zips: zip-emr zip-lambda
 
 zip-all: copy-data zips
 
 upload-launcher:
-	LAUNCHER_KEY=$$( python -c 'from ADF.config import ADFGlobalConfig ; print(ADFGlobalConfig.get_adf_launcher_key())') ; \
-	aws s3 cp bin/adf-launcher.py s3://$(BUCKET)/$$LAUNCHER_KEY
+	aws s3 cp bin/adf-launcher.py s3://$(BUCKET)/$(LAUNCHER_KEY)
+	aws s3api put-object-acl --bucket $(BUCKET) --key $(LAUNCHER_KEY) --acl public-read
 
 all: zip-all upload-launcher
 

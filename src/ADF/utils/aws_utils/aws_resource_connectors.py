@@ -62,7 +62,7 @@ class AWSResourceConnector(ABC):
         pass
 
     @abstractmethod
-    def __str__(self):
+    def __str__(self) -> str:
         pass
 
     # Leave out return type hint to allow for dynamic setting in usage
@@ -98,7 +98,7 @@ class AWSResourceConnector(ABC):
             logging.info(f"Skipping update for '{self}'...")
             return config
 
-    def destroy_if_exists(self, must_exist=False):
+    def destroy_if_exists(self, must_exist=False) -> None:
         config = self.fetch_config()
         if config is not None:
             logging.info(f"Destroying '{str(self)}'...")
@@ -111,7 +111,7 @@ class AWSResourceConnector(ABC):
             logging.info(f"Skipping '{str(self)}' destruction as it does not exist...")
 
     @abstractmethod
-    def destroy(self, config: AWSResourceConfig):
+    def destroy(self, config: AWSResourceConfig) -> None:
         pass
 
 
@@ -157,7 +157,7 @@ class AWSIAMRoleConnector(AWSResourceConnector):
     def requires_update(self, config: AWSIAMRoleConfig) -> bool:
         return False
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.__class__.__name__}:{self.role_name}"
 
     def fetch_config(self) -> Optional[AWSIAMRoleConfig]:
@@ -189,7 +189,7 @@ class AWSIAMRoleConnector(AWSResourceConnector):
         iam_role_exists_waiter.wait(RoleName=self.role_name)
         return self.force_fetch_config()
 
-    def destroy(self, config: AWSIAMRoleConfig):
+    def destroy(self, config: AWSIAMRoleConfig) -> None:
         for policy in iam_resource.Role(name=self.role_name).policies.all():
             policy.delete()
         iam_client.delete_role(RoleName=self.role_name)
@@ -209,7 +209,7 @@ class AWSVPCConnector(AWSResourceConnector):
     def requires_update(self, config: AWSVPCConfig) -> bool:
         return False
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.__class__.__name__}:{self.name}"
 
     def fetch_config(self) -> Optional[AWSVPCConfig]:
@@ -264,7 +264,7 @@ class AWSVPCConnector(AWSResourceConnector):
     def update(self, config: AWSVPCConfig) -> AWSVPCConfig:
         return config
 
-    def destroy(self, config: AWSVPCConfig):
+    def destroy(self, config: AWSVPCConfig) -> None:
         ec2_client.delete_vpc(VpcId=config.vpc_id)
 
 
@@ -281,7 +281,7 @@ class AWSInternetGatewayConnector(AWSResourceConnector):
     def requires_update(self, config: AWSInternetGatewayConfig) -> bool:
         return False
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.__class__.__name__}:{self.name}"
 
     def fetch_config(self) -> Optional[AWSInternetGatewayConfig]:
@@ -318,7 +318,7 @@ class AWSInternetGatewayConnector(AWSResourceConnector):
     def update(self, config: AWSInternetGatewayConfig) -> AWSInternetGatewayConfig:
         return config
 
-    def destroy(self, config: AWSInternetGatewayConfig):
+    def destroy(self, config: AWSInternetGatewayConfig) -> None:
         ec2_client.delete_internet_gateway(InternetGatewayId=config.internet_gateway_id)
 
 
@@ -339,7 +339,7 @@ class AWSNATGatewayConnector(AWSResourceConnector):
     def requires_update(self, config: AWSNATGatewayConfig) -> bool:
         return False
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.__class__.__name__}:{self.name}"
 
     def fetch_config(self) -> Optional[AWSNATGatewayConfig]:
@@ -376,7 +376,7 @@ class AWSNATGatewayConnector(AWSResourceConnector):
     def update(self, config: AWSNATGatewayConfig) -> AWSNATGatewayConfig:
         return config
 
-    def destroy(self, config: AWSNATGatewayConfig):
+    def destroy(self, config: AWSNATGatewayConfig) -> None:
         ec2_client.delete_nat_gateway(NatGatewayId=config.nat_gateway_id)
 
 
@@ -403,7 +403,7 @@ class AWSVPCEndpointConnector(AWSResourceConnector):
     def requires_update(self, config: AWSVPCEndpointConfig) -> bool:
         return False
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.__class__.__name__}:{self.name}"
 
     def fetch_config(self) -> Optional[AWSVPCEndpointConfig]:
@@ -444,7 +444,7 @@ class AWSVPCEndpointConnector(AWSResourceConnector):
     def update(self, config: AWSVPCEndpointConfig) -> AWSVPCEndpointConfig:
         return config
 
-    def destroy(self, config: AWSVPCEndpointConfig):
+    def destroy(self, config: AWSVPCEndpointConfig) -> None:
         ec2_client.delete_vpc_endpoints(VpcEndpointIds=[config.vpc_endpoint_id])
         while self.fetch_config() is not None:
             time.sleep(5)
@@ -461,7 +461,7 @@ class AWSElasticIPConnector(AWSResourceConnector):
     def requires_update(self, config: AWSElasticIPConfig) -> bool:
         return False
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.__class__.__name__}:{self.name}"
 
     def fetch_config(self) -> Optional[AWSElasticIPConfig]:
@@ -491,7 +491,7 @@ class AWSElasticIPConnector(AWSResourceConnector):
     def update(self, config: AWSElasticIPConfig) -> AWSElasticIPConfig:
         return config
 
-    def destroy(self, config: AWSElasticIPConfig):
+    def destroy(self, config: AWSElasticIPConfig) -> None:
         ec2_client.release_address(AllocationId=config.allocation_id)
 
 
@@ -509,7 +509,7 @@ class AWSRouteTableConnector(AWSResourceConnector):
     def requires_update(self, config: AWSRouteTableConfig) -> bool:
         return False
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.__class__.__name__}:{self.name}"
 
     def fetch_config(self) -> Optional[AWSRouteTableConfig]:
@@ -540,7 +540,7 @@ class AWSRouteTableConnector(AWSResourceConnector):
     def update(self, config: AWSRouteTableConfig) -> AWSRouteTableConfig:
         return config
 
-    def destroy(self, config: AWSRouteTableConfig):
+    def destroy(self, config: AWSRouteTableConfig) -> None:
         ec2_client.delete_route_table(RouteTableId=config.route_table_id)
 
 
@@ -564,7 +564,7 @@ class AWSSecurityGroupConnector(AWSResourceConnector):
     def requires_update(self, config: AWSSecurityGroupConfig) -> bool:
         return False
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.__class__.__name__}:{self.vpc_id}:{self.group_name}"
 
     def fetch_resource(
@@ -647,7 +647,7 @@ class AWSSecurityGroupConnector(AWSResourceConnector):
                 f"Skipping rules reset for {str(self)} as they are already empty...",
             )
 
-    def destroy(self, config: AWSSecurityGroupConfig):
+    def destroy(self, config: AWSSecurityGroupConfig) -> None:
         self.reset_rules()
         self.fetch_resource().delete()
 
@@ -671,7 +671,7 @@ class AWSSubnetConnector(AWSResourceConnector):
     def requires_update(self, config: AWSSubnetConfig) -> bool:
         return False
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.__class__.__name__}:{self.vpc_id}:{self.name}"
 
     def fetch_config(self) -> Optional[AWSSubnetConfig]:
@@ -721,7 +721,7 @@ class AWSSubnetConnector(AWSResourceConnector):
     def update(self, config: AWSSubnetConfig) -> AWSSubnetConfig:
         return config
 
-    def destroy(self, config: AWSSubnetConfig):
+    def destroy(self, config: AWSSubnetConfig) -> None:
         ec2_client.delete_subnet(SubnetId=config.subnet_id)
 
 
@@ -741,7 +741,7 @@ class AWSSubnetGroupConnector(AWSResourceConnector):
     def requires_update(self, config: AWSSubnetGroupConfig) -> bool:
         return False
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.__class__.__name__}:{self.name}"
 
     def fetch_config(self) -> Optional[AWSSubnetGroupConfig]:
@@ -769,7 +769,7 @@ class AWSSubnetGroupConnector(AWSResourceConnector):
     def update(self, config: AWSSubnetGroupConfig) -> AWSSubnetGroupConfig:
         return config
 
-    def destroy(self, config: AWSSubnetGroupConfig):
+    def destroy(self, config: AWSSubnetGroupConfig) -> None:
         rds_client.delete_db_subnet_group(DBSubnetGroupName=self.name)
 
 
@@ -789,7 +789,7 @@ class AWSClusterSubnetGroupConnector(AWSResourceConnector):
     def requires_update(self, config: AWSClusterSubnetGroupConfig) -> bool:
         return False
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.__class__.__name__}:{self.name}"
 
     def fetch_config(self) -> Optional[AWSClusterSubnetGroupConfig]:
@@ -825,7 +825,7 @@ class AWSClusterSubnetGroupConnector(AWSResourceConnector):
     ) -> AWSClusterSubnetGroupConfig:
         return config
 
-    def destroy(self, config: AWSClusterSubnetGroupConfig):
+    def destroy(self, config: AWSClusterSubnetGroupConfig) -> None:
         redshift_client.delete_cluster_subnet_group(ClusterSubnetGroupName=self.name)
 
 
@@ -858,7 +858,7 @@ class AWSRDSConnector(AWSResourceConnector):
             self.allocated_storage != config.allocated_storage
         )
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.__class__.__name__}:{self.identifier}"
 
     def fetch_config(self) -> Optional[AWSRDSConfig]:
@@ -925,7 +925,7 @@ class AWSRDSConnector(AWSResourceConnector):
         rds_db_instance_available_waiter.wait(DBInstanceIdentifier=self.identifier)
         return self.force_fetch_config()
 
-    def destroy(self, config: AWSRDSConfig):
+    def destroy(self, config: AWSRDSConfig) -> None:
         rds_client.delete_db_instance(
             DBInstanceIdentifier=self.identifier, SkipFinalSnapshot=True
         )
@@ -942,7 +942,7 @@ class AWSSQSConnector(AWSResourceConnector):
     def requires_update(self, config: AWSResourceConfig) -> bool:
         return False
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.__class__.__name__}:{self.name}"
 
     def get_queue_url(self) -> Optional[str]:
@@ -973,7 +973,7 @@ class AWSSQSConnector(AWSResourceConnector):
     def update(self, config: AWSSQSConfig) -> AWSSQSConfig:
         return self.force_fetch_config()
 
-    def destroy(self, config: AWSSQSConfig):
+    def destroy(self, config: AWSSQSConfig) -> None:
         sqs_client.delete_queue(QueueUrl=self.get_queue_url())
 
 
@@ -985,7 +985,7 @@ class AWSEventSourceMappingConnector(AWSResourceConnector):
     def requires_update(self, config: AWSEventSourceMappingConfig) -> bool:
         return True
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.__class__.__name__}:{self.source_arn}->{self.function_name}"
 
     def fetch_config(self) -> AWSEventSourceMappingConfig:
@@ -1023,7 +1023,7 @@ class AWSEventSourceMappingConnector(AWSResourceConnector):
             )
         )
 
-    def destroy(self, config: AWSEventSourceMappingConfig):
+    def destroy(self, config: AWSEventSourceMappingConfig) -> None:
         lambda_client.delete_event_source_mapping(UUID=config.uuid)
 
 
@@ -1055,7 +1055,7 @@ class AWSLambdaConnector(AWSResourceConnector):
     def requires_update(self, config: AWSLambdaConfig) -> bool:
         return True
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.__class__.__name__}:{self.func_name}"
 
     def construct_params(self) -> Dict:
@@ -1125,7 +1125,7 @@ class AWSLambdaConnector(AWSResourceConnector):
         )
         return config
 
-    def destroy(self, config: AWSLambdaConfig):
+    def destroy(self, config: AWSLambdaConfig) -> None:
         lambda_client.get_waiter("function_updated").wait(FunctionName=self.func_name)
         lambda_client.delete_function(FunctionName=self.func_name)
 
@@ -1142,7 +1142,7 @@ class AWSInstanceProfileConnector(AWSResourceConnector):
             or (self.role_name != config.role.role_name)
         )
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.__class__.__name__}:{self.name}"
 
     def fetch_config(self) -> Optional[AWSInstanceProfileConfig]:
@@ -1189,7 +1189,7 @@ class AWSInstanceProfileConnector(AWSResourceConnector):
         iam_instance_profile_exists_waiter.wait(InstanceProfileName=self.name)
         return self.force_fetch_config()
 
-    def destroy(self, config: AWSInstanceProfileConfig):
+    def destroy(self, config: AWSInstanceProfileConfig) -> None:
         try:
             iam_client.remove_role_from_instance_profile(
                 InstanceProfileName=self.name, RoleName=self.role_name
@@ -1242,7 +1242,7 @@ class AWSEMRConnector(AWSResourceConnector):
     def get_hadoop_username():
         return "hadoop"
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.__class__.__name__}:{self.name}"
 
     def get_key_pair_name(self):
@@ -1346,7 +1346,7 @@ class AWSEMRConnector(AWSResourceConnector):
         emr_cluster_running_waiter.wait(ClusterId=config.cluster_id)
         return self.force_fetch_config()
 
-    def destroy(self, config: AWSEMRConfig):
+    def destroy(self, config: AWSEMRConfig) -> None:
         emr_client.terminate_job_flows(JobFlowIds=[config.cluster_id])
         ec2_client.delete_key_pair(KeyName=self.get_key_pair_name())
         try:
@@ -1431,7 +1431,7 @@ class AWSEMRServerlessConnector(AWSResourceConnector):
             config = self.fetch_config()
         return config
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.__class__.__name__}:{self.name}"
 
     def fetch_config(self) -> Optional[AWSEMRServerlessConfig]:
@@ -1501,7 +1501,7 @@ class AWSEMRServerlessConnector(AWSResourceConnector):
         )
         return self.wait_on_application_ready()
 
-    def destroy(self, config: AWSEMRServerlessConfig):
+    def destroy(self, config: AWSEMRServerlessConfig) -> None:
         # TODO : cancel all jobs and stop application
         emr_serverless_client.delete_application(applicationId=config.application_id)
 
@@ -1533,7 +1533,7 @@ class AWSRedshiftConnector(AWSResourceConnector):
             self.number_of_nodes != config.number_of_nodes
         )
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.__class__.__name__}:{self.identifier}"
 
     def fetch_config(self) -> Optional[AWSRedshiftConfig]:
@@ -1607,7 +1607,7 @@ class AWSRedshiftConnector(AWSResourceConnector):
         redshift_available_waiter.wait(ClusterIdentifier=self.identifier)
         return self.force_fetch_config()
 
-    def destroy(self, config: AWSRedshiftConfig):
+    def destroy(self, config: AWSRedshiftConfig) -> None:
         redshift_client.delete_cluster(
             ClusterIdentifier=self.identifier,
             SkipFinalClusterSnapshot=True,

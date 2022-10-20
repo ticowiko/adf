@@ -18,6 +18,7 @@ type_map = {
     "int": int,
     "float": float,
     "complex": complex,
+    "bool": bool,
     "datetime": datetime.datetime,
     "date": datetime.date,
     "timedelta": datetime.timedelta,

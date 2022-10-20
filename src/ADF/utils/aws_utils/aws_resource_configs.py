@@ -2,6 +2,7 @@ import os
 
 from abc import ABC, abstractmethod
 from typing import Dict, Optional, List, Any
+from typing_extensions import Self
 
 
 def first_or_none(l: List) -> Optional[Any]:
@@ -14,7 +15,7 @@ class AWSResourceConfig(ABC):
 
     @classmethod
     @abstractmethod
-    def from_response(cls, response: Dict) -> "AWSResourceConfig":
+    def from_response(cls, response: Dict) -> Self:
         pass
 
 

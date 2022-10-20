@@ -44,6 +44,7 @@ class AWSAthenaLayer(AbstractDataLayer):
         bucket: str,
         s3_prefix: str,
         landing_format: str = "csv",
+        separator: str = ",",
     ):
         super().__init__(as_layer)
         self.db_name = db_name
@@ -51,6 +52,7 @@ class AWSAthenaLayer(AbstractDataLayer):
         self.s3_prefix = s3_prefix
         self.table_prefix = table_prefix
         self.landing_format = landing_format
+        self.separator = separator
 
         self.table_metas: Dict[ADFStep, DeclarativeMeta] = {}
         self.base = declarative_base()
@@ -177,7 +179,10 @@ class AWSAthenaLayer(AbstractDataLayer):
         )
         if step_format == "csv":
             storage_string = (
-                "ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.OpenCSVSerde'"
+                "ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.OpenCSVSerde'\n"
+                + f"WITH SERDEPROPERTIES ('separatorChar'='{self.separator}', 'quoteChar'='\"')\n"
+                + "STORED AS INPUTFORMAT 'org.apache.hadoop.mapred.TextInputFormat'"
+                + "OUTPUTFORMAT 'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat'"
             )
         elif step_format == "parquet":
             storage_string = f"STORED AS PARQUET"
@@ -190,7 +195,7 @@ class AWSAthenaLayer(AbstractDataLayer):
                 if not isinstance(step, ADFLandingStep)
                 else "",
                 ",\n".join(
-                    f"  `{col.name}` {self.athena_type_map[col.cast]}"
+                    f"  `{col.name}` {'STRING' if step_format == 'csv' else self.athena_type_map[col.cast]}"
                     for col in step.meta.columns
                     if col not in partition_cols
                 ),
@@ -410,4 +415,5 @@ class AWSAthenaLayer(AbstractDataLayer):
             "s3_prefix": self.s3_prefix,
             "table_prefix": self.table_prefix,
             "landing_format": self.landing_format,
+            "separator": self.separator,
         }

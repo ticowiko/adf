@@ -693,6 +693,9 @@ class ManagedAWSImplementer(AWSImplementer):
         )
 
     def setup_implementer(self, icp: str):
+        # Get layer counts to skip unneeded setup
+        layer_counts = self.layer_counts()
+
         # Setup core resources and update layers accordingly
         self.setup_connectors(True)
         self.layers = self.construct_layers()
@@ -724,16 +727,19 @@ class ManagedAWSImplementer(AWSImplementer):
         self.install_extra_packages()
 
         # Zip and upload code for lambda
-        self.zip_lambda()
+        if layer_counts["lambda"]:
+            self.zip_lambda()
 
         # Create and upload venv package
-        self.venv_package()
+        if layer_counts["emr_serverless"]:
+            self.venv_package()
 
         # Upload launcher to accessible bucker
         self.upload_launcher()
 
         # Zip and upload code for EMR
-        self.zip_emr()
+        if layer_counts["emr"]:
+            self.zip_emr()
 
         # Bootstrap for EMR
         yum_packages = ["python3-devel", "postgresql-devel", "emacs", "cmake"]
