@@ -19,43 +19,14 @@ else:
     raise RuntimeError("Failed to parse version")
 
 
-requirements = [
-    "numpy>=1.21.2",
-    "pandas>=1.2.4",
-    "pyarrow>=4.0.1",
-    "pyspark>=3.1.1",
-    "SQLAlchemy>=1.4.17",
-    "sqlalchemy-redshift>=0.8.5",
-    "pyathena>=2.14.0",
-    "PyYAML>=6.0",
-    "psycopg2-binary>=2.9.1",
-    "boto3>=1.24.66",
-    "croniter>=1.3.4",
-    "venv-pack>=0.2.0",
-]
+requirements_file = "requirements.txt"
 if "--dev" in sys.argv:
-    requirements += [
-        "boto3-stubs>=1.24.66",
-        "ipython>=7.27.0",
-        "black>=22.10",
-        "twine>=4.0",
-    ]
+    requirements_file = "requirements_dev.txt"
     sys.argv.remove("--dev")
 if "--emr" in sys.argv:
-    print("USING EMR INSTALL PARAMETERS")
-    requirements = [
-        "py4j>=0.10.9.2",
-        "numpy>=1.21.2",
-        "pandas>=1.2.4",
-        "SQLAlchemy>=1.4.17",
-        "sqlalchemy-redshift>=0.8.5",
-        "pyathena>=2.14.0",
-        "PyYAML>=6.0",
-        "psycopg2-binary>=2.9.1",
-        "boto3>=1.18.31",
-        "croniter>=1.3.4",
-    ]
+    requirements_file = "requirements_emr.txt"
     sys.argv.remove("--emr")
+requirements = list(filter(bool, open("requirements_dev.txt", "r").read().splitlines()))
 
 
 setup(

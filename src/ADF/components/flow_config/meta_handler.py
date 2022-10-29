@@ -107,7 +107,7 @@ class ADFMetaColumn(ToDictMixin):
 
     def handle_matching(self, ads: AbstractDataStructure) -> AbstractDataStructure:
         logging.info(
-            f"Handling matched column '{self.name}' with cast '{self.cast.__name__}'..."
+            f"Handling matched column '{self.name}' with cast '{self.cast.__name__ if self.cast is not None else 'NONE'}'..."
         )
         if self.cast is not None:
             ads[self.name] = ads[self.name].as_type(self.cast)
